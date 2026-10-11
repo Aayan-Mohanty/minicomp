@@ -39,15 +39,15 @@ bug, leaving a small example a developer can understand.
 | 2 | Recursive-descent parser -> AST (+ source printer) | 10% | Done |
 | 3 | Semantic analysis with scoped symbol table | 5% | Done |
 | 4 | Reference interpreter (ground truth) | 5% | Done |
-| 5 | Three-address code generation + TAC virtual machine | 13% | |
-| 6 | Basic blocks and control-flow graph | 5% | |
-| 7 | Optimizations: constant folding/propagation, copy propagation, dead-code elimination, common-subexpression elimination | 15% | |
+| 5 | Three-address code generation + TAC virtual machine | 13% | Done |
+| 6 | Basic blocks and control-flow graph | 5% | Done |
+| 7 | Optimizations: constant folding/propagation, copy propagation, dead-code elimination, common-subexpression elimination | 15% | Done |
 | 8 | Random program generator | 12% | |
 | 9 | Differential testing harness | 8% | |
 | 10 | Test-case reducer (delta debugging) | 10% | |
 | 11 | Evaluation with injected optimizer bugs | 10% | |
 
-Done so far: components 1-4 = **27%**.
+Done so far: components 1-7 = **60%**.
 
 ## Usage
 
@@ -57,6 +57,12 @@ python3 -m minicomp ast     examples/gcd.mini     # syntax tree
 python3 -m minicomp symbols examples/scopes.mini  # symbol table
 python3 -m minicomp fmt     examples/fib.mini     # formatted source
 python3 -m minicomp run     examples/fib.mini     # run (reference interpreter)
+python3 -m minicomp tac     examples/gcd.mini     # three-address code
+python3 -m minicomp tac     examples/gcd.mini -O1 # optimized three-address code
+python3 -m minicomp cfg     examples/gcd.mini     # basic blocks and control-flow graph
+python3 -m minicomp vm      examples/fib.mini -O1 # compile and run on the TAC virtual machine
+python3 -m minicomp compare examples/fib.mini     # reference vs -O0 vs -O1, sizes, verdict
+python3 -m minicomp tac FILE --passes cse,dce     # run only some optimization passes
 python3 -m pytest                                 # tests
 ```
 
@@ -108,6 +114,34 @@ excluded from comparisons.
 | `minicomp/ops.py` | Exact operator semantics, shared by every back end |
 | `minicomp/interp.py` | Reference interpreter |
 | `minicomp/printer.py` | AST -> source (used later by the generator and reducer) |
+| `minicomp/tac.py` | Three-address code instructions |
+| `minicomp/lower.py` | Intermediate code generation (AST -> TAC); unique names for shadowed variables |
+| `minicomp/vm.py` | Virtual machine that runs TAC and counts executed instructions |
+| `minicomp/cfg.py` | Basic blocks (leaders), control-flow graph, linearization back to TAC |
+| `minicomp/opt.py` | Optimizer: passes listed below, repeated until the code stops changing |
+
+## Optimizations
+
+| Pass | Scope | Technique |
+|---|---|---|
+| `constprop` | Global | Constant propagation by forward data-flow analysis (worklist; lattice UNDEF > constant > NAC; meet at joins), then constant folding, algebraic identities, and replacing branches on constants with gotos |
+| `unreachable` | Global | Removes blocks not reachable from the entry |
+| `copyprop` | Local (basic block) | After `x = y`, later uses of `x` read `y` |
+| `cse` | Local (basic block) | Reuses an earlier identical `a op b` (operands of commutative operators are normalized) |
+| `dce` | Global | Deletes assignments whose result is never read, using liveness analysis (backward data-flow) |
+
+Algebraic identities are used only if they hold for every 32-bit value.
+For example `x - x -> 0` is used, but `x / x -> 1` is not, because in
+Mini `0 / 0 == 0`.
+
+### Verification so far
+
+The optimizer was checked on 12,000 randomly generated programs (each run
+unoptimized, fully optimized, and with each pass alone) against the
+reference interpreter: no mismatches. As a control, a deliberately wrong
+rule (`x / x -> 1`) was planted and the same check caught it. This throwaway
+check is not the project's fuzzer; the real generator, harness and reducer
+are components 8-10.
 
 ## References
 

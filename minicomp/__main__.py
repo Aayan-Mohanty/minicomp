@@ -5,6 +5,10 @@
     python3 -m minicomp symbols FILE    show the symbol table (semantic analysis)
     python3 -m minicomp fmt     FILE    print the program back as formatted source
     python3 -m minicomp run     FILE    check and run with the reference interpreter
+    python3 -m minicomp tac     FILE [-O1]   show three-address code (optimized with -O1)
+    python3 -m minicomp cfg     FILE [-O1]   show basic blocks and the control-flow graph
+    python3 -m minicomp vm      FILE [-O1]   compile and run on the TAC virtual machine
+    python3 -m minicomp compare FILE    run reference, -O0 and -O1; report any difference
 
 Exit status: 0 = success, 1 = compile error, 2 = usage/file error, 3 = step limit hit.
 """
@@ -16,7 +20,12 @@ import sys
 from dataclasses import fields, is_dataclass
 
 from .errors import CompileError
+from . import vm
+from .cfg import build_cfg
 from .interp import DEFAULT_FUEL, OutOfFuel, run
+from .lower import lower
+from .opt import ALL_PASSES, optimize
+from .tac import format_code
 from .lexer import tokenize
 from .parser import parse
 from .printer import to_source
@@ -44,10 +53,35 @@ def tree_lines(node, indent: str = "", label: str = ""):
             yield from tree_lines(value, indent + "  ", f.name)
 
 
+def compare(program, code0, code1, fuel) -> int:
+    """Run the three versions and report whether their outputs agree."""
+    results = {}
+    try:
+        results["reference interpreter"] = run(program, fuel=fuel)
+        r0, r1 = vm.run(code0, fuel=fuel), vm.run(code1, fuel=fuel)
+    except OutOfFuel:
+        print("skipped: the program did not finish within the step limit")
+        return 3
+    results["TAC -O0"], results["TAC -O1"] = r0.output, r1.output
+    for name, out in results.items():
+        print(f"{name:<22} {' '.join(map(str, out)) or '(no output)'}")
+    print(f"\nstatic size:  {len(code0)} -> {len(code1)} instructions")
+    print(f"executed:     {r0.steps} -> {r1.steps} instructions")
+    if len({tuple(o) for o in results.values()}) == 1:
+        print("result:       all outputs match")
+        return 0
+    print("result:       MISMATCH (miscompilation)")
+    return 4
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="minicomp", description="Mini language compiler")
-    ap.add_argument("command", choices=["tokens", "ast", "symbols", "fmt", "run"])
+    ap.add_argument("command", choices=["tokens", "ast", "symbols", "fmt", "run",
+                                        "tac", "cfg", "vm", "compare"])
     ap.add_argument("file")
+    ap.add_argument("-O", dest="opt", type=int, choices=[0, 1], default=0,
+                    help="optimization level for tac/cfg/vm (default 0)")
+    ap.add_argument("--passes", help=f"comma-separated subset of: {','.join(ALL_PASSES)}")
     ap.add_argument("--fuel", type=int, default=DEFAULT_FUEL, help="step limit for run")
     args = ap.parse_args(argv)
 
@@ -75,9 +109,28 @@ def main(argv=None) -> int:
             for s in table.all_symbols:
                 print(f"{s.name:<12} declared at {s.line}:{s.col}  scope depth {s.depth}")
             return 0
-        for value in run(program, fuel=args.fuel):
-            print(value)
-        return 0
+        if args.command == "run":
+            for value in run(program, fuel=args.fuel):
+                print(value)
+            return 0
+
+        passes = args.passes.split(",") if args.passes else ALL_PASSES
+        code0 = lower(program)
+        code = optimize(code0, passes) if (args.opt == 1 or args.passes) else code0
+        if args.command == "tac":
+            print(format_code(code))
+            print(f"\n; {len(code)} instructions (unoptimized: {len(code0)})")
+            return 0
+        if args.command == "cfg":
+            print(build_cfg(code))
+            return 0
+        if args.command == "vm":
+            res = vm.run(code, fuel=args.fuel)
+            for value in res.output:
+                print(value)
+            print(f"; {res.steps} instructions executed", file=sys.stderr)
+            return 0
+        return compare(program, code0, optimize(code0, passes), args.fuel)
     except CompileError as e:
         print(f"{args.file}:{e}", file=sys.stderr)
         return 1
