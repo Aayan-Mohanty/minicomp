@@ -1,0 +1,9 @@
+// Euclid's algorithm
+var x = 1071;
+var y = 462;
+while (y != 0) {
+    var t = x % y;
+    x = y;
+    y = t;
+}
+print x;

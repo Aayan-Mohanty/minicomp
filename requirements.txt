@@ -1,0 +1,2 @@
+# No third-party packages are needed to run MiniComp.
+# For tests: pip install pytest

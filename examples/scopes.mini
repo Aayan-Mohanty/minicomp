@@ -1,0 +1,17 @@
+// Block scoping and shadowing
+var x = 1;
+{
+    var x = x + 10;   // initializer uses the OUTER x
+    print x;          // 11
+    x = x * 2;
+    print x;          // 22
+}
+print x;              // 1: the outer x is unchanged
+if (x == 1) {
+    x = 5;
+} else if (x == 2) {
+    x = 6;
+} else {
+    x = 7;
+}
+print x;              // 5
