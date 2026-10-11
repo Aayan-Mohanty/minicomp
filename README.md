@@ -71,6 +71,51 @@ python3 -m pytest                                 # tests
 
 No third-party packages are needed except pytest for the tests.
 
+## Web app: MiniComp Console
+
+```
+python3 -m webapp.server          # then open http://127.0.0.1:8000
+```
+
+An IDE-style console. Cyan marks the reference path, amber the compiled path.
+
+- **Pipeline bar**: every stage (lex, parse, sema, ref, tac, cfg, opt, vm, diff)
+  with its time in milliseconds and a count (tokens, nodes, instructions, agreement).
+- **diff**: the 8 runs side by side; values that differ from the reference are underlined in red.
+- **front end**: tokens by kind, the syntax tree, the symbol table.
+- **tac**: three-address code at -O0 and -O1.
+- **opt trace**: step through the optimizer pass by pass (arrow keys), with the
+  lines each pass added and removed and a code-size bar per step.
+- **cfg**: the control-flow graph at -O0 or -O1.
+- **fuzz**: a live campaign of up to 500 programs streamed from the server; each
+  square is one program (green agree, red bug, grey did not finish); click one to open it.
+- **console**: a timestamped log of every request with its server time and request id.
+
+Shortcuts: Ctrl/Cmd+Enter compile, Alt+R random program, Alt+1..6 views.
+
+### API (v1)
+
+| Method and path | Purpose |
+|---|---|
+| `GET /api/v1/health` | Liveness, version, uptime |
+| `GET /api/v1/meta` | Passes, limits, language rules |
+| `GET /api/v1/examples` | The programs in `examples/` |
+| `POST /api/v1/compile` `{"code"}` | Every stage with timings, optimizer trace, CFGs, 8-way verdict |
+| `POST /api/v1/generate` `{"seed"}` | The random program for a seed |
+| `GET /api/v1/fuzz/stream?n=&seed=` | Server-Sent Events: one `program` event per program, then `done` (n <= 500) |
+| `POST /api/v1/fuzz` `{"n","seed"}` | The same campaign as one reply (n <= 100); the page falls back to it if streaming fails |
+
+Standard library only. Each response has an `X-Request-Id` header and each request
+is logged as one JSON line. Clients are rate-limited per IP address (token bucket;
+too many requests get HTTP 429). Programs run only inside the Mini interpreter and VM
+with step limits; bodies are limited to 50 KB and programs to 20,000 characters.
+
+### Deploying on Render
+
+Build command `pip install -r requirements.txt`; start command
+`python -m webapp.server --host 0.0.0.0` (the port comes from `PORT`);
+environment variable `PYTHON_VERSION` = `3.13.5`.
+
 ## The Mini language
 
 ```
@@ -124,6 +169,7 @@ excluded from comparisons.
 | `minicomp/opt.py` | Optimizer: passes listed below, repeated until the code stops changing |
 | `minicomp/generator.py` | Random generator of valid, always-terminating programs |
 | `minicomp/harness.py` | Differential testing: runs every configuration, compares, blames passes, runs campaigns |
+| `webapp/server.py`, `webapp/static/index.html` | Web backend and page |
 
 ## Optimizations
 
