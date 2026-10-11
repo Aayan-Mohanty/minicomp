@@ -29,6 +29,13 @@ from . import ops
 from .cfg import CFG, EXIT, build_cfg, connect, linearize, reachable
 from .tac import Instr, Operand, copy
 
+# The optimizer evaluates constant expressions through these two hooks
+# rather than calling ops directly. Normally they ARE the functions in ops;
+# the bug-injection module (bugs.py) can replace them to plant a folding bug
+# in the optimizer without touching the reference interpreter or the VM.
+fold_binary = ops.binary
+fold_unary = ops.unary
+
 NAC = "NAC"          # "not a constant": the value may differ between executions
 COMMUTATIVE = {"+", "*", "&", "|", "^", "==", "!=", "&&", "||"}
 ALL_PASSES = ["constprop", "unreachable", "copyprop", "cse", "dce"]
@@ -42,10 +49,10 @@ def fold(ins: Instr) -> Instr:
     """Simplify one instruction using only its own operands."""
     a, b = ins.a, ins.b
     if ins.kind == "unop" and isinstance(a, int):
-        return copy(ins.dst, ops.unary(ins.op, a))
+        return copy(ins.dst, fold_unary(ins.op, a))
     if ins.kind == "binop":
         if isinstance(a, int) and isinstance(b, int):
-            return copy(ins.dst, ops.binary(ins.op, a, b))
+            return copy(ins.dst, fold_binary(ins.op, a, b))
         simplified = _identity(ins.op, a, b)
         if simplified is not None:
             return copy(ins.dst, simplified)
@@ -116,9 +123,9 @@ def _transfer_const(ins: Instr, env: Env) -> None:
     elif ins.kind == "copy":
         env[d] = vals[0]
     elif ins.kind == "unop":
-        env[d] = ops.unary(ins.op, vals[0])
+        env[d] = fold_unary(ins.op, vals[0])
     else:
-        env[d] = ops.binary(ins.op, vals[0], vals[1])
+        env[d] = fold_binary(ins.op, vals[0], vals[1])
 
 
 def constant_states(cfg: CFG) -> Dict[int, Env]:

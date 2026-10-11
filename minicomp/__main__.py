@@ -8,9 +8,13 @@
     python3 -m minicomp tac     FILE [-O1]   show three-address code (optimized with -O1)
     python3 -m minicomp cfg     FILE [-O1]   show basic blocks and the control-flow graph
     python3 -m minicomp vm      FILE [-O1]   compile and run on the TAC virtual machine
-    python3 -m minicomp compare FILE    run reference, -O0 and -O1; report any difference
+    python3 -m minicomp compare FILE    run reference, -O0, -O1 and each pass alone; report differences
+    python3 -m minicomp generate --seed N          print the random program for seed N
+    python3 -m minicomp fuzz -n COUNT [--seed N] [--out DIR] [--stop-after K]
+                                        differential testing campaign over generated programs
 
-Exit status: 0 = success, 1 = compile error, 2 = usage/file error, 3 = step limit hit.
+Exit status: 0 = success, 1 = compile error, 2 = usage/file error, 3 = step limit hit,
+4 = miscompilation found.
 """
 
 from __future__ import annotations
@@ -26,6 +30,9 @@ from .interp import DEFAULT_FUEL, OutOfFuel, run
 from .lower import lower
 from .opt import ALL_PASSES, optimize
 from .tac import format_code
+from .generator import generate_source
+from .harness import campaign, check_program
+from pathlib import Path
 from .lexer import tokenize
 from .parser import parse
 from .printer import to_source
@@ -53,37 +60,51 @@ def tree_lines(node, indent: str = "", label: str = ""):
             yield from tree_lines(value, indent + "  ", f.name)
 
 
-def compare(program, code0, code1, fuel) -> int:
-    """Run the three versions and report whether their outputs agree."""
-    results = {}
-    try:
-        results["reference interpreter"] = run(program, fuel=fuel)
-        r0, r1 = vm.run(code0, fuel=fuel), vm.run(code1, fuel=fuel)
-    except OutOfFuel:
+def compare(program, passes) -> int:
+    """Run every configuration on one program and report whether they agree."""
+    v = check_program(program, passes)
+    if v.status == "timeout":
         print("skipped: the program did not finish within the step limit")
         return 3
-    results["TAC -O0"], results["TAC -O1"] = r0.output, r1.output
-    for name, out in results.items():
-        print(f"{name:<22} {' '.join(map(str, out)) or '(no output)'}")
-    print(f"\nstatic size:  {len(code0)} -> {len(code1)} instructions")
-    print(f"executed:     {r0.steps} -> {r1.steps} instructions")
-    if len({tuple(o) for o in results.values()}) == 1:
-        print("result:       all outputs match")
+    for name, out in v.outputs.items():
+        shown = out if isinstance(out, str) else (" ".join(map(str, out)) or "(no output)")
+        mark = "  <-- differs" if name in v.failing else ""
+        size = f"[{v.code_size[name]:>4} instr]" if name in v.code_size else " " * 12
+        print(f"{name:<18} {size}  {shown[:70]}{'...' if len(shown) > 70 else ''}{mark}")
+    if v.status == "ok":
+        print("\nresult: all outputs match")
         return 0
-    print("result:       MISMATCH (miscompilation)")
+    print(f"\nresult: {v.status.upper()}; suspect passes: {', '.join(v.suspects) or 'interaction of passes'}")
     return 4
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="minicomp", description="Mini language compiler")
     ap.add_argument("command", choices=["tokens", "ast", "symbols", "fmt", "run",
-                                        "tac", "cfg", "vm", "compare"])
-    ap.add_argument("file")
+                                        "tac", "cfg", "vm", "compare", "generate", "fuzz"])
+    ap.add_argument("file", nargs="?")
+    ap.add_argument("--seed", type=int, default=0, help="generate/fuzz: (first) seed")
+    ap.add_argument("-n", type=int, default=200, help="fuzz: number of programs")
+    ap.add_argument("--out", help="fuzz: folder to save failing programs in")
+    ap.add_argument("--stop-after", type=int, help="fuzz: stop after this many failures")
     ap.add_argument("-O", dest="opt", type=int, choices=[0, 1], default=0,
                     help="optimization level for tac/cfg/vm (default 0)")
     ap.add_argument("--passes", help=f"comma-separated subset of: {','.join(ALL_PASSES)}")
     ap.add_argument("--fuel", type=int, default=DEFAULT_FUEL, help="step limit for run")
     args = ap.parse_args(argv)
+    passes = args.passes.split(",") if args.passes else ALL_PASSES
+
+    if args.command == "generate":
+        print(generate_source(args.seed), end="")
+        return 0
+    if args.command == "fuzz":
+        report = campaign(args.n, seed=args.seed, passes=passes,
+                          out_dir=Path(args.out) if args.out else None,
+                          stop_after=args.stop_after)
+        print(report.summary())
+        return 4 if report.failures else 0
+    if args.file is None:
+        ap.error(f"'{args.command}' needs a FILE")
 
     try:
         with open(args.file, encoding="utf-8") as fh:
@@ -114,7 +135,8 @@ def main(argv=None) -> int:
                 print(value)
             return 0
 
-        passes = args.passes.split(",") if args.passes else ALL_PASSES
+        if args.command == "compare":
+            return compare(program, passes)
         code0 = lower(program)
         code = optimize(code0, passes) if (args.opt == 1 or args.passes) else code0
         if args.command == "tac":
@@ -130,7 +152,7 @@ def main(argv=None) -> int:
                 print(value)
             print(f"; {res.steps} instructions executed", file=sys.stderr)
             return 0
-        return compare(program, code0, optimize(code0, passes), args.fuel)
+        raise AssertionError(args.command)
     except CompileError as e:
         print(f"{args.file}:{e}", file=sys.stderr)
         return 1

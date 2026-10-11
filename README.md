@@ -42,12 +42,12 @@ bug, leaving a small example a developer can understand.
 | 5 | Three-address code generation + TAC virtual machine | 13% | Done |
 | 6 | Basic blocks and control-flow graph | 5% | Done |
 | 7 | Optimizations: constant folding/propagation, copy propagation, dead-code elimination, common-subexpression elimination | 15% | Done |
-| 8 | Random program generator | 12% | |
-| 9 | Differential testing harness | 8% | |
+| 8 | Random program generator | 12% | Done |
+| 9 | Differential testing harness | 8% | Done |
 | 10 | Test-case reducer (delta debugging) | 10% | |
 | 11 | Evaluation with injected optimizer bugs | 10% | |
 
-Done so far: components 1-7 = **60%**.
+Done so far: components 1-9 = **80%**.
 
 ## Usage
 
@@ -63,6 +63,9 @@ python3 -m minicomp cfg     examples/gcd.mini     # basic blocks and control-flo
 python3 -m minicomp vm      examples/fib.mini -O1 # compile and run on the TAC virtual machine
 python3 -m minicomp compare examples/fib.mini     # reference vs -O0 vs -O1, sizes, verdict
 python3 -m minicomp tac FILE --passes cse,dce     # run only some optimization passes
+python3 -m minicomp generate --seed 3             # print the random program for seed 3
+python3 -m minicomp fuzz -n 500                   # differential testing campaign
+python3 -m minicomp fuzz -n 500 --seed 1000 --out failures --stop-after 5
 python3 -m pytest                                 # tests
 ```
 
@@ -119,6 +122,8 @@ excluded from comparisons.
 | `minicomp/vm.py` | Virtual machine that runs TAC and counts executed instructions |
 | `minicomp/cfg.py` | Basic blocks (leaders), control-flow graph, linearization back to TAC |
 | `minicomp/opt.py` | Optimizer: passes listed below, repeated until the code stops changing |
+| `minicomp/generator.py` | Random generator of valid, always-terminating programs |
+| `minicomp/harness.py` | Differential testing: runs every configuration, compares, blames passes, runs campaigns |
 
 ## Optimizations
 
@@ -134,18 +139,51 @@ Algebraic identities are used only if they hold for every 32-bit value.
 For example `x - x -> 0` is used, but `x / x -> 1` is not, because in
 Mini `0 / 0 == 0`.
 
-### Verification so far
+## Random program generator
 
-The optimizer was checked on 12,000 randomly generated programs (each run
-unoptimized, fully optimized, and with each pass alone) against the
-reference interpreter: no mismatches. As a control, a deliberately wrong
-rule (`x / x -> 1`) was planted and the same check caught it. This throwaway
-check is not the project's fuzzer; the real generator, harness and reducer
-are components 8-10.
+Each generated program is guaranteed to be valid (the generator tracks
+scopes exactly like semantic analysis) and to terminate (every loop has its
+own counter, incremented first in the body and never assigned elsewhere).
+The program ends by printing every top-level variable, so wrong values show
+up in the output. Expressions are biased toward what stresses an optimizer:
+edge-case constants, `x op x` patterns, repeated subexpressions, constant
+branch conditions, and shadowed variables. The same seed always gives the
+same program.
+
+## Differential testing harness
+
+Each program is run as: the reference interpreter, unoptimized TAC (`O0`),
+fully optimized TAC (`O1`), and TAC optimized by each pass alone. Any output
+that differs from the reference, or any crash, is a failure; passes that
+fail on their own are reported as suspects. Failing programs are saved with
+their seed and all outputs (`--out DIR`), and can be regenerated with
+`generate --seed N`.
+
+## Results so far
+
+Campaign of 2,000 generated programs (seeds 0-1999) on the current compiler:
+
+| Measure | Value |
+|---|---|
+| Programs agreeing with the reference in every configuration | 2,000 of 2,000 |
+| Skipped (did not terminate) | 0 |
+| Code size, O0 -> O1 | 382,931 -> 171,716 instructions (55% smaller) |
+| Programs where each pass changed the code | constprop 100%, copyprop 95%, cse 86%, dce 80%, unreachable 21% |
+
+Detection check with two planted bugs (in the test suite):
+
+| Planted bug | Detected as | Blamed pass |
+|---|---|---|
+| Wrong identity `x / x -> 1` | mismatch | constprop (where folding happens) |
+| Liveness ignores the operand of a conditional branch | crash (variable read before it is set) | dce |
+
+A systematic evaluation over a set of planted bugs, with detection rates and
+time to detection, is component 11.
 
 ## References
 
 - Aho, Lam, Sethi, Ullman. *Compilers: Principles, Techniques, and Tools*, 2nd ed., 2006.
+- Kildall. "A Unified Approach to Global Program Optimization." POPL 1973.
 - McKeeman. "Differential Testing for Software." *Digital Technical Journal*, 1998.
 - Yang, Chen, Eide, Regehr. "Finding and Understanding Bugs in C Compilers." PLDI 2011 (Csmith).
 - Le, Afshari, Su. "Compiler Validation via Equivalence Modulo Inputs." PLDI 2014.
