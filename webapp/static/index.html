@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiniComp Console</title>
+<meta name="description" content="An IDE-style console for MiniComp: compile Mini programs, watch every compiler stage with timings, step through the optimizer, and stream live differential fuzzing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0B0F14; --surf: #10161D; --raise: #161E28; --line: #233040; --line2: #2E3C4F;
+  --text: #D9E1EA; --dim: #8592A3; --faint: #5B6878;
+  --ref: #2DD4EF;  /* reference path: cyan */
+  --cmp: #F5A524;  /* compiled path: amber */
+  --ok: #3DDC84; --bug: #FF5C5C; --bug-wash: rgba(255, 92, 92, .12); --ok-wash: rgba(61, 220, 132, .10);
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --disp: "Space Grotesk", "JetBrains Mono", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 13px/1.55 var(--mono); min-height: 100vh; display: flex; flex-direction: column; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ref); outline-offset: 1px; }
+.dimc { color: var(--dim); } .refc { color: var(--ref); } .cmpc { color: var(--cmp); } .okc { color: var(--ok); } .bugc { color: var(--bug); }
+
+/* ---------- top bar ---------- */
+.top { display: flex; align-items: center; gap: 18px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surf); flex-wrap: wrap; }
+.brand { font: 700 18px/1 var(--disp); letter-spacing: .01em; display: flex; align-items: center; gap: 10px; }
+.brand svg { width: 34px; height: 20px; }
+.brand small { font: 400 12px var(--mono); color: var(--dim); }
+.top .grow { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.led.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.led.off { background: var(--bug); }
+
+/* ---------- pipeline ---------- */
+.pipe { display: flex; gap: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--bg); }
+.stage { flex: 1 0 104px; min-width: 104px; padding: 8px 10px; border: 1px solid var(--line); border-right: 0; background: var(--surf); position: relative; }
+.stage:last-child { border-right: 1px solid var(--line); }
+.stage:first-child { border-radius: 6px 0 0 6px; } .stage:last-child { border-radius: 0 6px 6px 0; }
+.stage .nm { font-weight: 700; font-size: 12px; display: flex; justify-content: space-between; gap: 6px; }
+.stage .ms { color: var(--dim); font-weight: 400; font-variant-numeric: tabular-nums; }
+.stage .ct { color: var(--dim); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--faint); }
+.stage.ok::before { background: var(--line2); }
+.stage.ref.ok::before { background: var(--ref); }
+.stage.cmp.ok::before { background: var(--cmp); }
+.stage.diff.ok::before { background: var(--ok); }
+.stage.err::before, .stage.diff.bad::before { background: var(--bug); }
+.stage.err .nm, .stage.diff.bad .nm { color: var(--bug); }
+.stage.skip { opacity: .45; }
+.stage.run::before { background: var(--text); animation: scan 0.9s linear infinite; }
+@keyframes scan { 0% { opacity: .2; } 50% { opacity: 1; } 100% { opacity: .2; } }
+
+/* ---------- workspace ---------- */
+.work { flex: 1; display: grid; grid-template-columns: minmax(320px, 5fr) minmax(0, 7fr); min-height: 0; }
+@media (max-width: 1000px) { .work { grid-template-columns: 1fr; } }
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+.pane:last-child { border-right: 0; }
+@media (max-width: 1000px) { .pane { border-right: 0; border-bottom: 1px solid var(--line); } }
+.phead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surf); flex-wrap: wrap; min-height: 44px; }
+.phead .lbl { color: var(--dim); }
+.phead .grow { flex: 1; }
+select, input[type=number] { background: var(--raise); border: 1px solid var(--line2); border-radius: 4px; padding: 4px 8px; }
+input[type=number] { width: 96px; }
+.btn { background: var(--raise); border: 1px solid var(--line2); border-radius: 4px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--dim); }
+.btn.go { background: var(--cmp); border-color: var(--cmp); color: #1A1204; font-weight: 700; }
+.btn.go:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .55; cursor: progress; }
+kbd { font: 11px var(--mono); color: var(--dim); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; }
+
+/* editor */
+.editor { flex: 1; display: flex; min-height: 420px; background: var(--bg); }
+.gutter { user-select: none; text-align: right; padding: 12px 10px 12px 8px; color: var(--faint); border-right: 1px solid var(--line); line-height: 21px; min-width: 52px; overflow: hidden; }
+.gutter div { height: 21px; }
+.gutter .err { color: var(--bg); background: var(--bug); border-radius: 3px; }
+textarea { flex: 1; border: 0; outline: none; resize: none; background: transparent; padding: 12px; line-height: 21px; white-space: pre; overflow: auto; tab-size: 4; caret-color: var(--cmp); }
+textarea:focus-visible { box-shadow: inset 2px 0 0 var(--cmp); }
+textarea::selection { background: rgba(245, 165, 36, .3); }
+
+/* inspector */
+[role=tablist] { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--surf); }
+[role=tab] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 11px 14px; color: var(--dim); cursor: pointer; white-space: nowrap; }
+[role=tab][aria-selected=true] { color: var(--text); border-bottom-color: var(--cmp); }
+[role=tab] .k { color: var(--faint); margin-left: 6px; font-size: 11px; }
+.panel { flex: 1; overflow: auto; padding: 14px 16px; min-height: 360px; }
+.panel[hidden] { display: none; }
+.empty { color: var(--dim); }
+.cmt { color: var(--faint); }
+h3 { font: 500 12px var(--mono); color: var(--dim); margin: 18px 0 8px; } h3:first-child { margin-top: 0; }
+
+/* diff */
+.verdict { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.verdict .big { font: 700 34px/1 var(--disp); }
+.verdict.ok .big { color: var(--ok); } .verdict.bad .big { color: var(--bug); } .verdict.neutral .big { color: var(--dim); }
+.runs { width: 100%; border-collapse: collapse; }
+.runs th, .runs td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.runs th { color: var(--faint); font-weight: 400; font-size: 12px; }
+.runs td.n { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+.runs .bar { display: inline-block; width: 3px; height: 14px; vertical-align: -2px; margin-right: 8px; background: var(--cmp); }
+.runs .bar.ref { background: var(--ref); }
+.runs tr.bad td { background: var(--bug-wash); }
+.vals span { margin-right: 6px; } .vals .x { color: var(--bug); text-decoration: underline; text-underline-offset: 3px; }
+.kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.kpi { border: 1px solid var(--line); background: var(--surf); border-radius: 6px; padding: 8px 12px; min-width: 150px; }
+.kpi b { display: block; font: 700 20px/1.2 var(--disp); font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--dim); font-size: 12px; }
+
+/* front */
+.toks { display: flex; flex-wrap: wrap; gap: 4px; }
+.tok { border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+.tok.kw { color: var(--cmp); } .tok.int { color: var(--ref); } .tok.op { color: var(--dim); }
+.tree { white-space: pre; line-height: 1.6; overflow: auto; }
+.tree .t { color: var(--cmp); } .tree .p { color: var(--faint); }
+.tbl { border-collapse: collapse; } .tbl td, .tbl th { padding: 4px 14px 4px 0; text-align: left; border-bottom: 1px solid var(--line); } .tbl th { color: var(--faint); font-weight: 400; }
+
+/* code views */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+.code { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.code .hd { padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surf); display: flex; justify-content: space-between; color: var(--dim); }
+.code pre { margin: 0; padding: 8px 0; overflow: auto; max-height: 560px; }
+.code .ln { display: block; padding: 0 10px; }
+.code .ln i { display: inline-block; width: 32px; color: var(--faint); font-style: normal; user-select: none; }
+.code .lab { color: var(--ref); }
+.code .add { background: var(--ok-wash); box-shadow: inset 2px 0 0 var(--ok); }
+
+/* trace */
+.trace { display: grid; grid-template-columns: 260px 1fr; gap: 12px; }
+@media (max-width: 760px) { .trace { grid-template-columns: 1fr; } }
+.steps { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.step { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 6px 10px; cursor: pointer; }
+.step:last-child { border-bottom: 0; }
+.step[aria-current=true] { background: var(--raise); box-shadow: inset 2px 0 0 var(--cmp); }
+.step .r { color: var(--faint); } .step .s { color: var(--dim); font-variant-numeric: tabular-nums; }
+.spark { display: block; width: 100%; height: 44px; margin-bottom: 10px; }
+
+/* cfg */
+.seg { display: inline-flex; border: 1px solid var(--line2); border-radius: 4px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 3px 10px; cursor: pointer; color: var(--dim); }
+.seg button[aria-pressed=true] { background: var(--cmp); color: #1A1204; font-weight: 700; }
+.graph { overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+svg.cfg text { font-family: var(--mono); }
+
+/* fuzz */
+.fz-head { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, 13px); gap: 3px; margin: 10px 0 14px; }
+.cell { width: 13px; height: 13px; border-radius: 2px; border: 1px solid var(--line2); background: transparent; padding: 0; cursor: pointer; }
+.cell.ok { background: var(--ok); border-color: var(--ok); opacity: .75; }
+.cell.bad { background: var(--bug); border-color: var(--bug); }
+.cell.to { background: var(--faint); border-color: var(--faint); }
+.cell.cur { border-color: var(--text); animation: scan .6s linear infinite; }
+.bars { display: grid; grid-template-columns: max-content 1fr 48px; gap: 6px 10px; align-items: center; }
+.track { height: 8px; background: var(--raise); border-radius: 4px; overflow: hidden; }
+.fill { height: 100%; background: var(--cmp); }
+.failrow { border: 1px solid var(--bug); background: var(--bug-wash); border-radius: 4px; padding: 6px 10px; margin-top: 6px; }
+.link { background: none; border: 0; padding: 0; color: var(--ref); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* console + status */
+.console { border-top: 1px solid var(--line); background: var(--surf); height: 150px; display: flex; flex-direction: column; }
+.console .phead { min-height: 34px; padding: 4px 12px; }
+#log { flex: 1; overflow: auto; padding: 6px 12px; margin: 0; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+#log .ts { color: var(--faint); }
+.status { display: flex; gap: 16px; flex-wrap: wrap; padding: 4px 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11.5px; background: var(--bg); }
+@media (prefers-reduced-motion: reduce) { .stage.run::before, .cell.cur { animation: none; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">
+    <svg viewBox="0 0 34 20" aria-hidden="true"><circle cx="3" cy="10" r="2.5" fill="#D9E1EA"/><path d="M5 10 C 12 10, 12 2, 18 2 S 26 10, 30 10" fill="none" stroke="#2DD4EF" stroke-width="2"/><path d="M5 10 C 12 10, 12 18, 18 18 S 26 10, 30 10" fill="none" stroke="#F5A524" stroke-width="2"/><circle cx="31" cy="10" r="2.5" fill="#D9E1EA"/></svg>
+    MiniComp <small>console</small>
+  </div>
+  <span class="pill"><span class="refc">━</span> reference</span>
+  <span class="pill"><span class="cmpc">━</span> compiled</span>
+  <span class="grow"></span>
+  <span class="pill" id="api"><span class="led" id="led"></span><span id="apitxt">api: connecting</span></span>
+</div>
+
+<div class="pipe" id="pipe" aria-label="Compiler pipeline"></div>
+
+<div class="work">
+  <section class="pane" aria-label="Source">
+    <div class="phead">
+      <span class="cmt">// source</span>
+      <select id="example" aria-label="Example program"><option value="">scratch</option></select>
+      <span class="grow"></span>
+      <label class="lbl">seed <input id="seed" type="number" min="0" max="1000000000" value="3"></label>
+      <button class="btn" id="gen" type="button" title="Alt+R">random</button>
+      <button class="btn go" id="run" type="button" title="Ctrl/⌘+Enter">compile ▸</button>
+    </div>
+    <div class="editor">
+      <div class="gutter" id="gutter" aria-hidden="true"></div>
+      <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Mini source code"></textarea>
+    </div>
+  </section>
+
+  <section class="pane" aria-label="Inspector">
+    <div role="tablist" aria-label="Inspector views">
+      <button role="tab" id="t-diff" aria-controls="p-diff" aria-selected="true">diff<span class="k">alt+1</span></button>
+      <button role="tab" id="t-front" aria-controls="p-front" aria-selected="false" tabindex="-1">front end<span class="k">alt+2</span></button>
+      <button role="tab" id="t-tac" aria-controls="p-tac" aria-selected="false" tabindex="-1">tac<span class="k">alt+3</span></button>
+      <button role="tab" id="t-trace" aria-controls="p-trace" aria-selected="false" tabindex="-1">opt trace<span class="k">alt+4</span></button>
+      <button role="tab" id="t-cfg" aria-controls="p-cfg" aria-selected="false" tabindex="-1">cfg<span class="k">alt+5</span></button>
+      <button role="tab" id="t-fuzz" aria-controls="p-fuzz" aria-selected="false" tabindex="-1">fuzz<span class="k">alt+6</span></button>
+    </div>
+    <div class="panel" role="tabpanel" id="p-diff" aria-labelledby="t-diff"><p class="empty">Compile a program to run it eight ways and compare the outputs.</p></div>
+    <div class="panel" role="tabpanel" id="p-front" aria-labelledby="t-front" hidden><p class="empty">Tokens, syntax tree and symbol table appear here.</p></div>
+    <div class="panel" role="tabpanel" id="p-tac" aria-labelledby="t-tac" hidden><p class="empty">Three-address code before and after optimization appears here.</p></div>
+    <div class="panel" role="tabpanel" id="p-trace" aria-labelledby="t-trace" hidden><p class="empty">Step through the optimizer pass by pass.</p></div>
+    <div class="panel" role="tabpanel" id="p-cfg" aria-labelledby="t-cfg" hidden><p class="empty">The control-flow graph appears here.</p></div>
+    <div class="panel" role="tabpanel" id="p-fuzz" aria-labelledby="t-fuzz" hidden>
+      <div class="fz-head">
+        <span class="cmt">// differential fuzzing: program i uses seed start + i</span>
+      </div>
+      <div class="fz-head">
+        <label class="lbl">programs <input id="fz-n" type="number" min="1" max="500" value="200"></label>
+        <label class="lbl">start seed <input id="fz-seed" type="number" min="0" max="1000000000" value="0"></label>
+        <button class="btn go" id="fz-go" type="button">stream ▸</button>
+        <button class="btn" id="fz-stop" type="button" disabled>stop</button>
+      </div>
+      <div id="fz-kpis" class="kpis" style="margin-top:0"></div>
+      <div id="fz-grid" class="grid" aria-label="One square per program"></div>
+      <div id="fz-tail"><p class="empty">Each square is one random program, run eight ways. Green: all agree. Red: compiler bug. Grey: did not finish. Click a square to open its program.</p></div>
+    </div>
+  </section>
+</div>
+
+<div class="console" aria-label="Console">
+  <div class="phead"><span class="cmt">// console</span><span class="grow"></span><button class="btn" id="clear" type="button">clear</button></div>
+  <pre id="log" aria-live="polite"></pre>
+</div>
+<div class="status"><span id="cursor">ln 1, col 1</span><span id="lines">0 lines</span><span>mini · 32-bit wrap · x/0 = 0</span><span><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> compile · <kbd>Alt</kbd>+<kbd>R</kbd> random · <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>6</kbd> views</span></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const API = "/api/v1";
+const codeEl = $("#code"), gutter = $("#gutter");
+let errLines = new Set(), last = null, examples = [], cfgLevel = "O1", traceIdx = 0, stream = null;
+
+/* ---------- console log ---------- */
+function log(msg, cls = "") {
+  const d = new Date(), ts = d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0");
+  const el = $("#log");
+  el.insertAdjacentHTML("beforeend", `<span class="ts">${ts}</span>  <span class="${cls}">${msg}</span>\n`);
+  el.scrollTop = el.scrollHeight;
+}
+$("#clear").addEventListener("click", () => { $("#log").innerHTML = ""; });
+
+/* ---------- api ---------- */
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const t0 = performance.now();
+  const r = await fetch(API + path, opts);
+  const data = await r.json();
+  data._rid = r.headers.get("X-Request-Id") || "-";
+  data._rt = Math.round(performance.now() - t0);
+  data._status = r.status;
+  return data;
+}
+async function health() {
+  try {
+    const h = await api("/health");
+    $("#led").className = "led on";
+    $("#apitxt").textContent = `api v${h.version} · up ${fmtUp(h.uptime_s)}`;
+  } catch { $("#led").className = "led off"; $("#apitxt").textContent = "api: offline"; }
+}
+const fmtUp = (s) => s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
+health(); setInterval(health, 30000);
+
+/* ---------- pipeline ---------- */
+const STAGES = [
+  ["lex", "lex", ""], ["parse", "parse", ""], ["sema", "sema", ""], ["ref", "ref", "ref"],
+  ["tac", "tac", "cmp"], ["cfg", "cfg", "cmp"], ["opt", "opt", "cmp"], ["vm", "vm", "cmp"], ["diff", "diff", "diff"],
+];
+function drawPipe(state = {}) {
+  $("#pipe").innerHTML = STAGES.map(([key, name, kind]) => {
+    const s = state[key] || {};
+    return `<div class="stage ${kind} ${s.cls || ""}"><div class="nm"><span>${name}</span><span class="ms">${s.ms != null ? s.ms.toFixed(2) + "ms" : ""}</span></div><div class="ct">${esc(s.ct || "·")}</div></div>`;
+  }).join("");
+}
+drawPipe();
+
+/* ---------- editor ---------- */
+function renderGutter() {
+  const n = codeEl.value.split("\n").length;
+  let h = ""; for (let i = 1; i <= n; i++) h += `<div${errLines.has(i) ? ' class="err"' : ""}>${i}</div>`;
+  gutter.innerHTML = h; gutter.scrollTop = codeEl.scrollTop;
+  $("#lines").textContent = `${n} lines`;
+}
+function cursorPos() {
+  const before = codeEl.value.slice(0, codeEl.selectionStart).split("\n");
+  $("#cursor").textContent = `ln ${before.length}, col ${before.at(-1).length + 1}`;
+}
+codeEl.addEventListener("input", () => { errLines.clear(); renderGutter(); cursorPos(); });
+codeEl.addEventListener("scroll", () => { gutter.scrollTop = codeEl.scrollTop; });
+["keyup", "click"].forEach((ev) => codeEl.addEventListener(ev, cursorPos));
+codeEl.addEventListener("keydown", (e) => {
+  if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); codeEl.setRangeText("    ", codeEl.selectionStart, codeEl.selectionEnd, "end"); codeEl.dispatchEvent(new Event("input")); }
+});
+function setCode(text) { codeEl.value = text; errLines.clear(); renderGutter(); cursorPos(); }
+function goLine(n) {
+  const lines = codeEl.value.split("\n"); let s = 0;
+  for (let i = 0; i < n - 1 && i < lines.length; i++) s += lines[i].length + 1;
+  codeEl.focus(); codeEl.setSelectionRange(s, s + (lines[n - 1] || "").length); codeEl.scrollTop = Math.max(0, (n - 5) * 21); cursorPos();
+}
+
+/* ---------- keyboard ---------- */
+const tabs = [...document.querySelectorAll("[role=tab]")];
+function selectTab(t) { tabs.forEach((x) => { const on = x === t; x.setAttribute("aria-selected", String(on)); x.tabIndex = on ? 0 : -1; document.getElementById(x.getAttribute("aria-controls")).hidden = !on; }); }
+tabs.forEach((t, i) => {
+  t.addEventListener("click", () => selectTab(t));
+  t.addEventListener("keydown", (e) => { const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0; if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; selectTab(n); n.focus(); } });
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); compile(); }
+  else if (e.altKey && (e.code === "KeyR")) { e.preventDefault(); $("#gen").click(); }
+  else if (e.altKey && /^Digit[1-6]$/.test(e.code)) { e.preventDefault(); selectTab(tabs[+e.code.slice(5) - 1]); }
+  else if (!$("#p-trace").hidden && document.activeElement !== codeEl && last && last.ok && (e.key === "ArrowDown" || e.key === "ArrowUp") && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "SELECT") {
+    e.preventDefault(); traceIdx = Math.max(0, Math.min(last.trace.length - 1, traceIdx + (e.key === "ArrowDown" ? 1 : -1))); renderTrace();
+  }
+});
+
+/* ---------- examples + generator ---------- */
+api("/examples").then((r) => {
+  examples = r.examples || [];
+  const sel = $("#example");
+  examples.forEach((ex, i) => sel.insertAdjacentHTML("beforeend", `<option value="${i}">${esc(ex.name)}</option>`));
+  const start = examples.findIndex((ex) => ex.name === "gcd.mini");
+  if (start >= 0) { sel.value = String(start); setCode(examples[start].code); compile(); }
+}).catch(() => log("could not load examples", "bugc"));
+$("#example").addEventListener("change", (e) => { const ex = examples[+e.target.value]; if (ex) { setCode(ex.code); log(`open examples/${esc(ex.name)}`); compile(); } });
+async function loadSeed(seed) {
+  const r = await api("/generate", { seed });
+  if (!r.ok) { log(`generate: ${esc(r.error)}`, "bugc"); return; }
+  $("#example").value = ""; $("#seed").value = seed; setCode(r.code);
+  log(`generate seed=${seed} <span class="dimc">req ${r._rid}</span>`);
+  compile();
+}
+$("#gen").addEventListener("click", () => loadSeed(Math.max(0, parseInt($("#seed").value || "0", 10))));
+
+/* ---------- compile ---------- */
+async function compile() {
+  const btn = $("#run"); btn.disabled = true;
+  drawPipe(Object.fromEntries(STAGES.map(([k]) => [k, { cls: "run" }])));
+  try { render(await api("/compile", { code: codeEl.value })); }
+  catch { drawPipe(); log("compile: server unreachable", "bugc"); }
+  finally { btn.disabled = false; }
+}
+$("#run").addEventListener("click", compile);
+
+const PHASE_STAGE = { lexical: "lex", input: "lex", syntax: "parse", semantic: "sema" };
+const RUNS = { "reference": ["ref", "reference interpreter"], "O0": ["cmp", "O0 unoptimized"], "O1": ["cmp", "O1 all passes"],
+  "only:constprop": ["cmp", "only constprop"], "only:unreachable": ["cmp", "only unreachable"], "only:copyprop": ["cmp", "only copyprop"],
+  "only:cse": ["cmp", "only cse"], "only:dce": ["cmp", "only dce"] };
+
+function render(res) {
+  last = res; errLines = new Set(); traceIdx = 0;
+  if (res._status === 429) { drawPipe(); log(`rate limited: ${esc(res.error)}`, "bugc"); return; }
+  const t = res.timings_ms || {};
+  if (!res.ok) {
+    const bad = PHASE_STAGE[res.phase] || "lex";
+    const st = {}; let after = false;
+    STAGES.forEach(([k]) => { if (k === bad) { st[k] = { cls: "err", ms: t[k], ct: `${res.errors.length} error${res.errors.length > 1 ? "s" : ""}` }; after = true; } else st[k] = after ? { cls: "skip", ct: "skipped" } : { cls: "ok", ms: t[k] }; });
+    drawPipe(st);
+    res.errors.forEach((e) => errLines.add(e.line)); renderGutter();
+    $("#p-diff").innerHTML = `<div class="verdict bad"><span class="big">${esc(res.phase)} error</span><span class="dimc">compilation stopped at ${bad}</span></div>` +
+      res.errors.map((e) => `<div class="failrow"><button class="link" data-line="${e.line}">${e.line}:${e.col}</button>  ${esc(e.message)}</div>`).join("");
+    $("#p-diff").querySelectorAll("[data-line]").forEach((b) => b.addEventListener("click", () => goLine(+b.dataset.line)));
+    $("#p-front").innerHTML = res.tokens ? frontHtml(res) : `<p class="empty">Stopped at ${esc(res.phase)} analysis.</p>`;
+    ["#p-tac", "#p-trace", "#p-cfg"].forEach((p) => { $(p).innerHTML = `<p class="empty">No code generated: compilation stopped at ${bad}.</p>`; });
+    log(`compile <span class="bugc">${esc(res.phase)} error</span> ${res.errors.map((e) => `${e.line}:${e.col} ${esc(e.message)}`).join("; ")} <span class="dimc">req ${res._rid}</span>`);
+    return;
+  }
+  renderGutter();
+  const c = res.counts, v = res.verdict, agree = 8 - v.failing.length, timeout = v.status === "timeout";
+  const refLen = Array.isArray(v.outputs.reference) ? v.outputs.reference.length : 0;
+  drawPipe({
+    lex: { cls: "ok", ms: t.lex, ct: `${c.tokens} tokens` }, parse: { cls: "ok", ms: t.parse, ct: `${c.ast_nodes} nodes` },
+    sema: { cls: "ok", ms: t.sema, ct: `${c.symbols} symbols` }, ref: { cls: "ok", ms: t.ref, ct: timeout ? "step limit" : `${refLen} values` },
+    tac: { cls: "ok", ms: t.tac, ct: `${c.tac_O0} instr` }, cfg: { cls: "ok", ms: t.cfg, ct: `${c.blocks_O0} blocks` },
+    opt: { cls: "ok", ms: t.opt, ct: `${c.tac_O0}→${c.tac_O1} · ${c.opt_rounds} rnd` },
+    vm: { cls: timeout ? "skip" : "ok", ms: t.vm, ct: res.steps.O0 != null ? `${res.steps.O0}→${res.steps.O1} steps` : "skipped" },
+    diff: { cls: timeout ? "skip" : (v.status === "ok" ? "ok" : "bad"), ms: t.diff, ct: timeout ? "no reference" : `${agree}/8 agree` },
+  });
+  renderDiff(); $("#p-front").innerHTML = frontHtml(res); renderTac(); renderTrace(); renderCfg();
+  const total = Object.values(t).reduce((a, b) => a + b, 0);
+  const cls = v.status === "ok" ? "okc" : timeout ? "dimc" : "bugc";
+  log(`compile <span class="${cls}">${timeout ? "timeout" : v.status === "ok" ? "8/8 agree" : v.status.toUpperCase() + " suspects=" + (v.suspects.join(",") || "interaction")}</span>  ${c.tac_O0}→${c.tac_O1} instr  ${total.toFixed(1)}ms server / ${res._rt}ms total <span class="dimc">req ${res._rid}</span>`);
+}
+
+function valsHtml(out, ref) {
+  if (typeof out === "string") return `<span class="bugc">${esc(out)}</span>`;
+  if (!out.length) return `<span class="dimc">(no output)</span>`;
+  const shown = out.slice(0, 60).map((x, i) => `<span class="${Array.isArray(ref) && ref[i] !== x ? "x" : ""}">${x}</span>`).join("");
+  return shown + (out.length > 60 ? `<span class="dimc">… +${out.length - 60}</span>` : "") + (Array.isArray(ref) && ref.length !== out.length ? ` <span class="bugc">(${out.length} values, reference has ${ref.length})</span>` : "");
+}
+function renderDiff() {
+  const v = last.verdict, ref = v.outputs.reference;
+  const head = v.status === "ok" ? `<div class="verdict ok"><span class="big">8/8 agree</span><span class="dimc">reference and every compiled version printed the same values</span></div>`
+    : v.status === "timeout" ? `<div class="verdict neutral"><span class="big">no verdict</span><span class="dimc">the reference interpreter hit its step limit</span></div>`
+    : `<div class="verdict bad"><span class="big">${esc(v.status)}</span><span class="dimc">suspect passes: ${esc(v.suspects.join(", ") || "only with all passes together")}</span></div>`;
+  if (v.status === "timeout") { $("#p-diff").innerHTML = head; return; }
+  const rows = Object.keys(RUNS).filter((k) => k in v.outputs).map((k) => {
+    const [kind, label] = RUNS[k];
+    return `<tr class="${v.failing.includes(k) ? "bad" : ""}"><td><span class="bar ${kind}"></span>${label}</td><td class="n">${k === "reference" ? "" : v.sizes[k]}</td><td class="vals">${valsHtml(v.outputs[k], k === "reference" ? null : ref)}</td></tr>`;
+  }).join("");
+  const s0 = v.sizes.O0, s1 = v.sizes.O1, e0 = last.steps.O0, e1 = last.steps.O1, pct = (a, b) => a ? Math.round(100 * (1 - b / a)) : 0;
+  $("#p-diff").innerHTML = head + `<table class="runs"><thead><tr><th>run</th><th class="n">instr</th><th>printed values</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="kpis"><div class="kpi"><b>${s0} → ${s1}</b><span>static instructions · −${pct(s0, s1)}%</span></div>
+    ${e0 != null ? `<div class="kpi"><b>${e0.toLocaleString()} → ${e1.toLocaleString()}</b><span>executed instructions · −${pct(e0, e1)}%</span></div>` : ""}
+    <div class="kpi"><b>${last.counts.opt_rounds}</b><span>optimizer rounds to fixed point</span></div></div>`;
+}
+
+function frontHtml(res) {
+  const toks = res.tokens.filter((t) => t.kind !== "EOF").map((t) => {
+    const cls = t.kind === "INT" ? "int" : t.kind === "IDENT" ? "" : /^[a-z]+$/.test(t.kind) ? "kw" : "op";
+    return `<span class="tok ${cls}" title="${t.kind} @${t.line}:${t.col}">${esc(t.text)}</span>`;
+  }).join("");
+  const syms = res.symbols ? `<h3>// symbol table (${res.symbols.length})</h3>${res.symbols.length ? `<table class="tbl"><thead><tr><th>name</th><th>declared</th><th>depth</th></tr></thead><tbody>${res.symbols.map((s) => `<tr><td class="cmpc">${esc(s.name)}</td><td>${s.line}:${s.col}</td><td>${s.depth}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">No declarations.</p>`}` : "";
+  return `<h3>// tokens (${res.tokens.length - 1})</h3><div class="toks">${toks}</div><h3>// abstract syntax tree</h3><div class="tree">${tree(res.ast)}</div>${syms}`;
+}
+function tree(node, ind = "", label = "") {
+  if (Array.isArray(node)) return node.map((n) => tree(n, ind, label)).join("");
+  if (!node || typeof node !== "object") return "";
+  const sc = Object.entries(node).filter(([k, v]) => !["type", "line", "col"].includes(k) && (typeof v !== "object" || v === null)).map(([k, v]) => `${k}=${esc(JSON.stringify(v))}`).join(" ");
+  let out = `${ind}${label ? `<span class="p">${esc(label)}:</span> ` : ""}<span class="t">${esc(node.type)}</span>${sc ? " " + sc : ""}${node.line ? ` <span class="p">@${node.line}:${node.col}</span>` : ""}\n`;
+  for (const [k, v] of Object.entries(node)) {
+    if (v && typeof v === "object") {
+      if (Array.isArray(v)) { out += `${ind}  <span class="p">${esc(k)}[${v.length}]</span>\n`; v.forEach((ch) => { out += tree(ch, ind + "    "); }); }
+      else out += tree(v, ind + "  ", k);
+    }
+  }
+  return out;
+}
+
+function codeHtml(lines, added) {
+  return lines.map((l, i) => {
+    const lab = l.endsWith(":");
+    return `<span class="ln ${added && added.has(i) ? "add" : ""}"><i>${i + 1}</i>${lab ? `<span class="lab">${esc(l)}</span>` : "    " + esc(l)}</span>`;
+  }).join("");
+}
+function renderTac() {
+  const box = (title, lines, cls) => `<div class="code"><div class="hd"><span class="${cls}">${title}</span><span>${lines.filter((l) => !l.endsWith(":")).length} instr</span></div><pre>${codeHtml(lines) || " (empty)"}</pre></div>`;
+  $("#p-tac").innerHTML = `<div class="cols">${box("// -O0 unoptimized", last.tac.O0, "")}${box("// -O1 optimized", last.tac.O1, "cmpc")}</div>`;
+}
+
+/* ---------- optimizer trace ---------- */
+function renderTrace() {
+  const tr = last.trace, step = tr[traceIdx];
+  const prev = traceIdx > 0 ? tr[traceIdx - 1].code : null;
+  let added = null, removed = 0;
+  if (prev) {
+    const pool = new Map(); prev.forEach((l) => pool.set(l, (pool.get(l) || 0) + 1));
+    added = new Set();
+    step.code.forEach((l, i) => { const n = pool.get(l) || 0; if (n > 0) pool.set(l, n - 1); else added.add(i); });
+    removed = [...pool.values()].reduce((a, b) => a + b, 0);
+  }
+  const max = Math.max(...tr.map((s) => s.size)), W = 600, H = 44, bw = W / tr.length;
+  const spark = `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Code size after each optimizer step">${tr.map((s, i) => {
+    const h = Math.max(2, (s.size / max) * (H - 4));
+    return `<rect x="${i * bw + 1}" y="${H - h}" width="${Math.max(1, bw - 2)}" height="${h}" fill="${i === traceIdx ? "var(--cmp)" : "var(--line2)"}"><title>${s.pass}: ${s.size} instr</title></rect>`;
+  }).join("")}</svg>`;
+  const list = tr.map((s, i) => `<button class="step" type="button" data-i="${i}" aria-current="${i === traceIdx}"><span class="r">${s.round ? "r" + s.round : "—"}</span><span class="${s.pass === "input" ? "" : "cmpc"}">${s.pass}</span><span class="s">${s.size}</span></button>`).join("");
+  const delta = prev ? `<span><span class="okc">+${added.size}</span> <span class="bugc">−${removed}</span> lines</span>` : `<span>lowered from the AST</span>`;
+  $("#p-trace").innerHTML = `<p class="cmt" style="margin-top:0">// ${tr.length - 1} pass applications changed the code; ↑/↓ to step</p>${spark}
+    <div class="trace"><div class="steps">${list}</div>
+    <div class="code"><div class="hd"><span>${step.pass === "input" ? "// input (O0)" : `// round ${step.round} · after ${step.pass}`}</span>${delta}</div><pre>${codeHtml(step.code, added)}</pre></div></div>`;
+  $("#p-trace").querySelectorAll(".step").forEach((b) => b.addEventListener("click", () => { traceIdx = +b.dataset.i; renderTrace(); }));
+}
+
+/* ---------- CFG ---------- */
+function renderCfg() {
+  const blocks = last.cfg[cfgLevel];
+  $("#p-cfg").innerHTML = `<div class="fz-head"><div class="seg" role="group" aria-label="Optimization level"><button type="button" data-l="O0" aria-pressed="${cfgLevel === "O0"}">-O0</button><button type="button" data-l="O1" aria-pressed="${cfgLevel === "O1"}">-O1</button></div>
+    <span class="dimc">${blocks.length} basic blocks · dashed = loop back edge</span></div>
+    ${blocks.length ? `<div class="graph">${drawCfg(blocks)}</div>` : `<p class="empty">No instructions left after optimization.</p>`}`;
+  $("#p-cfg").querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => { cfgLevel = b.dataset.l; renderCfg(); }));
+}
+function drawCfg(blocks) {
+  const nodes = new Map(blocks.map((b) => [b.id, { ...b, succ: b.succ.map((s) => s === "EXIT" ? "X" : s) }]));
+  nodes.set("X", { id: "X", labels: [], instrs: [], succ: [], exit: true });
+  const entry = blocks[0].id, back = new Set(), state = new Map();
+  (function dfs(id) { state.set(id, 1); for (const s of nodes.get(id).succ) { if (state.get(s) === 1) back.add(id + ">" + s); else if (!state.has(s)) dfs(s); } state.set(id, 2); })(entry);
+  const layer = new Map([[entry, 0]]), indeg = new Map([...nodes.keys()].map((k) => [k, 0]));
+  nodes.forEach((n) => n.succ.forEach((s) => { if (!back.has(n.id + ">" + s)) indeg.set(s, indeg.get(s) + 1); }));
+  const q = [...nodes.keys()].filter((k) => indeg.get(k) === 0);
+  while (q.length) { const id = q.shift(); nodes.get(id).succ.forEach((s) => { if (back.has(id + ">" + s)) return; layer.set(s, Math.max(layer.get(s) || 0, (layer.get(id) || 0) + 1)); indeg.set(s, indeg.get(s) - 1); if (indeg.get(s) === 0) q.push(s); }); }
+  nodes.forEach((n, k) => { if (!layer.has(k)) layer.set(k, 0); });
+  const CH = 7.3, LH = 17, PAD = 10, HEAD = 22, VGAP = 46, HGAP = 26, MAXC = 44, box = new Map();
+  nodes.forEach((n) => {
+    const head = n.exit ? "EXIT" : `B${n.id}${n.labels.length ? "  " + n.labels.join(", ") : ""}`;
+    const rows = n.instrs.map((t) => t.length > MAXC ? t.slice(0, MAXC - 1) + "…" : t);
+    box.set(n.id, { w: Math.max(70, Math.max(head.length, ...rows.map((r) => r.length), 4) * CH + PAD * 2), h: HEAD + rows.length * LH + (rows.length ? 8 : 4), head, rows });
+  });
+  const layers = []; nodes.forEach((n) => { const L = layer.get(n.id); (layers[L] = layers[L] || []).push(n.id); });
+  const skips = []; nodes.forEach((n) => n.succ.forEach((s) => { const k = n.id + ">" + s; if (!back.has(k) && layer.get(s) - layer.get(n.id) > 1) skips.push(k); }));
+  const left = 20 + (skips.length ? 14 + skips.length * 12 : 0);
+  let y = 16, width = 0; const rowsMeta = [];
+  layers.forEach((ids) => { if (!ids) return; const w = ids.reduce((s, id) => s + box.get(id).w, 0) + HGAP * (ids.length - 1); const h = Math.max(...ids.map((id) => box.get(id).h)); rowsMeta.push({ ids, w, y, h }); width = Math.max(width, w); y += h + VGAP; });
+  const rowBottom = new Map(); rowsMeta.forEach((r) => rowBottom.set(layer.get(r.ids[0]), r.y + r.h));
+  rowsMeta.forEach((r) => { let x = left + (width - r.w) / 2; r.ids.forEach((id) => { const b = box.get(id); b.x = x; b.y = r.y; x += b.w + HGAP; }); });
+  const W = left + width + (back.size ? 30 + back.size * 14 : 20), H = y - VGAP + 20 + back.size * 6;
+  let edges = "", k = 0; const ink = "#5B6878";
+  nodes.forEach((n) => n.succ.forEach((s) => {
+    const a = box.get(n.id), c = box.get(s), key = n.id + ">" + s;
+    if (back.has(key)) { const xr = left + width + 14 + k * 14, drop = rowBottom.get(layer.get(n.id)) + 10 + 6 * (k++); edges += `<path d="M${a.x + a.w / 2},${a.y + a.h} V${drop} H${xr} V${c.y + c.h / 2} H${c.x + c.w + 4}" fill="none" stroke="${ink}" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah)"/>`; }
+    else if (skips.includes(key)) { const i = skips.indexOf(key), xl = left - 14 - i * 12; edges += `<path d="M${a.x},${a.y + a.h / 2} H${xl} V${c.y + 12 + i * 4} H${c.x - 4}" fill="none" stroke="${ink}" stroke-width="1.4" marker-end="url(#ah)"/>`; }
+    else { const x1 = a.x + a.w / 2, y1 = a.y + a.h, x2 = c.x + c.w / 2, y2 = c.y - 4, my = (y1 + y2) / 2; edges += `<path d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" fill="none" stroke="${ink}" stroke-width="1.4" marker-end="url(#ah)"/>`; }
+  }));
+  let svg = "";
+  nodes.forEach((n) => {
+    const b = box.get(n.id), st = n.exit ? "#5B6878" : "#F5A524";
+    svg += `<g><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="5" fill="#10161D" stroke="${st}" stroke-width="1.2"/><text x="${b.x + PAD}" y="${b.y + 15}" font-size="12" font-weight="700" fill="${st}">${esc(b.head)}</text>`;
+    b.rows.forEach((r, i) => { svg += `<text x="${b.x + PAD}" y="${b.y + HEAD + i * LH + 10}" font-size="12" fill="#D9E1EA">${esc(r)}</text>`; });
+    svg += `</g>`;
+  });
+  return `<svg class="cfg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Control-flow graph, ${blocks.length} blocks"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${ink}"/></marker></defs>${edges}${svg}</svg>`;
+}
+
+/* ---------- fuzz (live stream, with batch fallback) ---------- */
+let fz = null;
+function fzReset(n, seed) {
+  fz = { n, seed, done: 0, ok: 0, bad: [], to: 0, s0: 0, s1: 0, act: {}, t0: performance.now() };
+  $("#fz-grid").innerHTML = Array.from({ length: n }, (_, i) => `<button class="cell" type="button" data-seed="${seed + i}" title="seed ${seed + i}" aria-label="seed ${seed + i}"></button>`).join("");
+  $("#fz-grid").firstElementChild?.classList.add("cur");
+  $("#fz-tail").innerHTML = "";
+  fzKpis();
+}
+function fzKpis() {
+  const el = (performance.now() - fz.t0) / 1000, judged = fz.done - fz.to;
+  $("#fz-kpis").innerHTML = `<div class="kpi"><b>${fz.done}/${fz.n}</b><span>programs run</span></div>
+    <div class="kpi"><b class="okc">${fz.ok}</b><span>all 8 runs agree</span></div>
+    <div class="kpi"><b class="${fz.bad.length ? "bugc" : ""}">${fz.bad.length}</b><span>compiler bugs</span></div>
+    <div class="kpi"><b>${judged && fz.s0 ? Math.round(100 * (1 - fz.s1 / fz.s0)) : 0}%</b><span>code removed by -O1</span></div>
+    <div class="kpi"><b>${el ? (fz.done / el).toFixed(1) : "0.0"}/s</b><span>${el.toFixed(1)} s elapsed</span></div>`;
+}
+function fzOne(r) {
+  const cell = $("#fz-grid").children[r.seed - fz.seed];
+  if (cell) { cell.classList.remove("cur"); cell.classList.add(r.status === "ok" ? "ok" : r.status === "timeout" ? "to" : "bad"); cell.title = `seed ${r.seed}: ${r.status} · ${r.size_O0}→${r.size_O1} instr · ${r.ms} ms`; cell.nextElementSibling?.classList.add("cur"); }
+  fz.done++;
+  if (r.status === "ok") fz.ok++; else if (r.status === "timeout") fz.to++; else { fz.bad.push(r); log(`fuzz <span class="bugc">seed=${r.seed} ${r.status}</span> failing=${r.failing.join(",")} suspects=${r.suspects.join(",") || "interaction"}`); }
+  if (r.status !== "timeout") { fz.s0 += r.size_O0 || 0; fz.s1 += r.size_O1 || 0; r.changed.forEach((p) => { fz.act[p] = (fz.act[p] || 0) + 1; }); }
+  fzKpis();
+}
+function fzFinish(summary) {
+  $("#fz-grid").querySelectorAll(".cur").forEach((c) => c.classList.remove("cur"));
+  const judged = fz.done - fz.to, passes = ["constprop", "unreachable", "copyprop", "cse", "dce"];
+  const bars = passes.map((p) => { const share = judged ? Math.round(100 * (fz.act[p] || 0) / judged) : 0; return `<span>${p}</span><div class="track"><div class="fill" style="width:${share}%"></div></div><span class="dimc">${share}%</span>`; }).join("");
+  const fails = fz.bad.length ? fz.bad.map((r) => `<div class="failrow">seed <button class="link" data-seed="${r.seed}">${r.seed}</button>  ${r.status}  failing: ${r.failing.join(", ")}  suspects: ${r.suspects.join(", ") || "passes together"}</div>`).join("")
+    : `<p class="okc">No compiler bugs in ${judged} programs.</p>`;
+  $("#fz-tail").innerHTML = `<h3>// programs where each pass changed the code</h3><div class="bars">${bars}</div><h3>// failures</h3>${fails}`;
+  $("#fz-tail").querySelectorAll("[data-seed]").forEach((b) => b.addEventListener("click", () => openSeed(+b.dataset.seed)));
+  log(`fuzz done ${fz.done} programs  <span class="okc">${fz.ok} agree</span>  <span class="${fz.bad.length ? "bugc" : "dimc"}">${fz.bad.length} bugs</span>  ${fz.to} timeouts  ${((performance.now() - fz.t0) / 1000).toFixed(1)}s`);
+  $("#fz-go").disabled = false; $("#fz-stop").disabled = true;
+}
+function openSeed(seed) { selectTab(tabs[0]); loadSeed(seed); }
+$("#fz-grid").addEventListener("click", (e) => { const c = e.target.closest(".cell"); if (c && (c.classList.contains("ok") || c.classList.contains("bad") || c.classList.contains("to"))) openSeed(+c.dataset.seed); });
+
+$("#fz-go").addEventListener("click", () => {
+  const n = Math.min(500, Math.max(1, parseInt($("#fz-n").value || "200", 10))), seed = Math.max(0, parseInt($("#fz-seed").value || "0", 10));
+  fzReset(n, seed); $("#fz-go").disabled = true; $("#fz-stop").disabled = false;
+  log(`fuzz stream n=${n} seed=${seed}`);
+  let got = false;
+  stream = new EventSource(`${API}/fuzz/stream?n=${n}&seed=${seed}`);
+  stream.addEventListener("program", (e) => { got = true; fzOne(JSON.parse(e.data)); });
+  stream.addEventListener("done", (e) => { stream.close(); stream = null; fzFinish(JSON.parse(e.data)); });
+  stream.onerror = async () => {
+    if (!stream) return;
+    stream.close(); stream = null;
+    if (got) { log("fuzz stream closed early", "bugc"); fzFinish(); return; }
+    const m = Math.min(n, 100);                       // streaming unavailable: one batch request
+    log(`streaming unavailable; running ${m} programs as one request`, "dimc");
+    fzReset(m, seed);
+    try { const r = await api("/fuzz", { n: m, seed }); if (!r.ok) { log(`fuzz: ${esc(r.error)}`, "bugc"); fzFinish(); return; } r.results.forEach(fzOne); fzFinish(r); }
+    catch { log("fuzz: server unreachable", "bugc"); fzFinish(); }
+  };
+});
+$("#fz-stop").addEventListener("click", () => { if (stream) { stream.close(); stream = null; log(`fuzz stopped after ${fz.done} programs`, "dimc"); fzFinish(); } });
+
+log('ready · <span class="refc">cyan</span> = reference path, <span class="cmpc">amber</span> = compiled path');
+renderGutter();
+</script>
+</body>
+</html>

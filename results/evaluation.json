@@ -1,0 +1,389 @@
+{
+  "n": 400,
+  "seed": 0,
+  "baseline": {
+    "default": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "swap": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    }
+  },
+  "bugs": [
+    {
+      "name": "div-self-one",
+      "home": "constprop",
+      "summary": "algebraic shortcut x / x -> 1 (wrong when x is 0)",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 17,
+          "seed": 16,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.24
+        },
+        "swap": {
+          "detected": true,
+          "programs": 17,
+          "seed": 16,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.25
+        }
+      },
+      "blamed": true,
+      "reduced_from": 59,
+      "reduced_to": 9,
+      "reduced_source": "var k0 = 0;\nwhile (k0 / k0 <= 0) {\n    k0 = 1;\n}\nvar f = k0;\nif (f) {\n} else {\n    print 0;\n}\n",
+      "reduce_tests": 104,
+      "reduce_seconds": 7.09,
+      "reduce_complete": true
+    },
+    {
+      "name": "fold-div-floor",
+      "home": "constprop",
+      "summary": "constant division rounds down instead of toward zero",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 49,
+          "seed": 48,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.16
+        },
+        "swap": {
+          "detected": true,
+          "programs": 49,
+          "seed": 48,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.49
+        }
+      },
+      "blamed": true,
+      "reduced_from": 55,
+      "reduced_to": 5,
+      "reduced_source": "var d = ~1;\nif (1 / d) {\n} else {\n    print 0;\n}\n",
+      "reduce_tests": 96,
+      "reduce_seconds": 0.64,
+      "reduce_complete": true
+    },
+    {
+      "name": "fold-shift-unmasked",
+      "home": "constprop",
+      "summary": "constant shifts by 32 or more give 0 instead of using the low 5 bits",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 42,
+          "seed": 41,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.15
+        },
+        "swap": {
+          "detected": true,
+          "programs": 42,
+          "seed": 41,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.01
+        }
+      },
+      "blamed": true,
+      "reduced_from": 14,
+      "reduced_to": 2,
+      "reduced_source": "var a = 1 << 255;\nprint a;\n",
+      "reduce_tests": 59,
+      "reduce_seconds": 0.03,
+      "reduce_complete": true
+    },
+    {
+      "name": "fold-unsigned-compare",
+      "home": "constprop",
+      "summary": "constant comparisons treat negative numbers as large unsigned ones",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 5,
+          "seed": 4,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.05
+        },
+        "swap": {
+          "detected": true,
+          "programs": 5,
+          "seed": 4,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.05
+        }
+      },
+      "blamed": true,
+      "reduced_from": 13,
+      "reduced_to": 1,
+      "reduced_source": "print 0 > -1;\n",
+      "reduce_tests": 48,
+      "reduce_seconds": 0.02,
+      "reduce_complete": true
+    },
+    {
+      "name": "meet-keep-first",
+      "home": "constprop",
+      "summary": "at a join, two different constants are merged into the first one instead of NAC",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.37
+        },
+        "swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.36
+        }
+      },
+      "blamed": true,
+      "reduced_from": 27,
+      "reduced_to": 4,
+      "reduced_source": "var k0 = 0;\nwhile (k0 < 1) {\n    k0 = 1;\n}\n",
+      "reduce_tests": 46,
+      "reduce_seconds": 16.19,
+      "reduce_complete": true
+    },
+    {
+      "name": "unreachable-false-branch",
+      "home": "unreachable",
+      "summary": "reachability ignores the false edge of a conditional branch",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        },
+        "swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        }
+      },
+      "blamed": true,
+      "reduced_from": 27,
+      "reduced_to": 4,
+      "reduced_source": "var k0 = 0;\nwhile (k0) {\n    k0 = 1;\n}\n",
+      "reduce_tests": 33,
+      "reduce_seconds": 1.11,
+      "reduce_complete": true
+    },
+    {
+      "name": "copyprop-no-kill",
+      "home": "copyprop",
+      "summary": "after x = y, a later assignment to y does not cancel the copy",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 111,
+          "seed": 110,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 5.3
+        },
+        "swap": {
+          "detected": true,
+          "programs": 111,
+          "seed": 110,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 5.16
+        }
+      },
+      "blamed": true,
+      "reduced_from": 62,
+      "reduced_to": 5,
+      "reduced_source": "var a = 1;\nvar b = 0;\nb = a;\na = 0;\nprint b;\n",
+      "reduce_tests": 70,
+      "reduce_seconds": 0.07,
+      "reduce_complete": true
+    },
+    {
+      "name": "cse-no-kill",
+      "home": "cse",
+      "summary": "a remembered a ? b is reused after a or b has been reassigned",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 38,
+          "seed": 37,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 1.91
+        },
+        "swap": {
+          "detected": true,
+          "programs": 38,
+          "seed": 37,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 1.9
+        }
+      },
+      "blamed": true,
+      "reduced_from": 69,
+      "reduced_to": 4,
+      "reduced_source": "var c = 0;\nc = c + c <= 0;\nc = c + c;\nprint c;\n",
+      "reduce_tests": 112,
+      "reduce_seconds": 0.06,
+      "reduce_complete": true
+    },
+    {
+      "name": "cse-sub-commutes",
+      "home": "cse",
+      "summary": "a - b is treated as the same expression as b - a",
+      "by_setting": {
+        "default": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.81
+        },
+        "swap": {
+          "detected": true,
+          "programs": 242,
+          "seed": 241,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 12.27
+        }
+      },
+      "blamed": false,
+      "reduced_from": 193,
+      "reduced_to": 6,
+      "reduced_source": "var k3 = 0;\nwhile (k3 < 1) {\n    k3 = k3 + 1;\n    print (0 > (0 || k3) ^ (0 != k3) < 1) - 1;\n    print 1 - (0 > (0 || k3) ^ (0 != k3) < 1);\n}\n",
+      "reduce_tests": 351,
+      "reduce_seconds": 15.11,
+      "reduce_complete": true
+    },
+    {
+      "name": "liveness-ignores-branch",
+      "home": "dce",
+      "summary": "liveness forgets that a conditional branch reads its condition",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.01
+        },
+        "swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.01
+        }
+      },
+      "blamed": true,
+      "reduced_from": 27,
+      "reduced_to": 4,
+      "reduced_source": "var k0 = 0;\nwhile (k0) {\n    k0 = 1;\n}\n",
+      "reduce_tests": 38,
+      "reduce_seconds": 1.65,
+      "reduce_complete": true
+    },
+    {
+      "name": "liveness-no-backedge",
+      "home": "dce",
+      "summary": "liveness makes one backward sweep instead of iterating to a fixed point",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 1.64
+        },
+        "swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 2.3
+        }
+      },
+      "blamed": true,
+      "reduced_from": 27,
+      "reduced_to": 4,
+      "reduced_source": "var k0 = 0;\nwhile (k0 < 1) {\n    k0 = 1;\n}\n",
+      "reduce_tests": 50,
+      "reduce_seconds": 26.54,
+      "reduce_complete": true
+    }
+  ],
+  "seconds": 172.1
+}
