@@ -1,0 +1,1848 @@
+{
+  "n": 400,
+  "seed": 0,
+  "baseline": {
+    "default": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "no-swap": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "no-functions": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "no-arrays": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "no-globals": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "no-recursion": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    },
+    "no-loop-control": {
+      "programs": 400,
+      "failures": 0,
+      "timeouts": 0
+    }
+  },
+  "bugs": [
+    {
+      "name": "div-self-one",
+      "home": "constprop",
+      "summary": "algebraic shortcut x / x -> 1 (wrong when x is 0)",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 23,
+          "seed": 22,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.4
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 23,
+          "seed": 22,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.22
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 29,
+          "seed": 28,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.98
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 13,
+          "seed": 12,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.53
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 5,
+          "seed": 4,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.63
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 30,
+          "seed": 29,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.37
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.14
+        }
+      },
+      "blamed": true,
+      "reduced_from": 97,
+      "reduced_to": 6,
+      "reduced_source": "var k3 = 0;\nwhile (k3 < 1) {\n    k3 = 1;\n}\nvar d = 1 != k3;\nprint d / d;\n",
+      "reduce_tests": 127,
+      "reduce_seconds": 1.62,
+      "reduce_complete": true
+    },
+    {
+      "name": "fold-div-floor",
+      "home": "constprop",
+      "summary": "constant division rounds down instead of toward zero",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 63,
+          "seed": 62,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 4.39
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 63,
+          "seed": 62,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 4.99
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 300,
+          "seed": 299,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 14.18
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 94,
+          "seed": 93,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 12.3
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 28,
+          "seed": 27,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 4.58
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 31,
+          "seed": 30,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.36
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 63,
+          "seed": 62,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 5.1
+        }
+      },
+      "blamed": true,
+      "reduced_from": 109,
+      "reduced_to": 3,
+      "reduced_source": "var g0 = 0;\ng0 = -1 / 16;\nprint g0;\n",
+      "reduce_tests": 117,
+      "reduce_seconds": 1.67,
+      "reduce_complete": true
+    },
+    {
+      "name": "fold-shift-unmasked",
+      "home": "constprop",
+      "summary": "constant shifts by 32 or more give 0 instead of using the low 5 bits",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 33,
+          "seed": 32,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 3.47
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 33,
+          "seed": 32,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 3.45
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 11,
+          "seed": 10,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.48
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 17,
+          "seed": 16,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.98
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 6,
+          "seed": 5,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.6
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 19,
+          "seed": 18,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.79
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 31,
+          "seed": 30,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.91
+        }
+      },
+      "blamed": true,
+      "reduced_from": 114,
+      "reduced_to": 6,
+      "reduced_source": "fun f1() {\n    if (35 >> -31) {\n        print 0;\n    }\n}\nprint f1();\n",
+      "reduce_tests": 118,
+      "reduce_seconds": 0.49,
+      "reduce_complete": true
+    },
+    {
+      "name": "fold-unsigned-compare",
+      "home": "constprop",
+      "summary": "constant comparisons treat negative numbers as large unsigned ones",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 26,
+          "seed": 25,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.98
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 26,
+          "seed": 25,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.91
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 7,
+          "seed": 6,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.36
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.23
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 15,
+          "seed": 14,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.97
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 3,
+          "seed": 2,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.24
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 15,
+          "seed": 14,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.01
+        }
+      },
+      "blamed": true,
+      "reduced_from": 57,
+      "reduced_to": 4,
+      "reduced_source": "var g0 = 1;\nvar f = -1;\ng0 = 0 <= f;\nprint g0;\n",
+      "reduce_tests": 110,
+      "reduce_seconds": 0.48,
+      "reduce_complete": true
+    },
+    {
+      "name": "meet-keep-first",
+      "home": "constprop",
+      "summary": "at a join, two different constants are merged into the first one instead of NAC",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.02
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.02
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.02
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.1
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.02
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.02
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.19
+        }
+      },
+      "blamed": true,
+      "reduced_from": 53,
+      "reduced_to": 7,
+      "reduced_source": "var g0 = 1;\nvar k2 = 0;\nwhile (k2 < 1 && -1) {\n    k2 = 1;\n    g0 = 0;\n}\nprint g0;\n",
+      "reduce_tests": 117,
+      "reduce_seconds": 2.26,
+      "reduce_complete": true
+    },
+    {
+      "name": "unreachable-false-branch",
+      "home": "unreachable",
+      "summary": "reachability ignores the false edge of a conditional branch",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.1
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.01
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "unreachable"
+          ],
+          "seconds": 0.09
+        }
+      },
+      "blamed": true,
+      "reduced_from": 53,
+      "reduced_to": 4,
+      "reduced_source": "fun f1() {\n    for (var k1 = 0; k1; k1 = 1) {\n    }\n}\n",
+      "reduce_tests": 56,
+      "reduce_seconds": 0.03,
+      "reduce_complete": true
+    },
+    {
+      "name": "call-result-undef",
+      "home": "constprop",
+      "summary": "a call's result is treated as 'no value yet' instead of NAC",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 21,
+          "seed": 20,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.17
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 21,
+          "seed": 20,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.19
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.97
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 13,
+          "seed": 12,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.61
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 19,
+          "seed": 18,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 2.64
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 85,
+          "seed": 84,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 5.32
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 21,
+          "seed": 20,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.43
+        }
+      },
+      "blamed": true,
+      "reduced_from": 71,
+      "reduced_to": 8,
+      "reduced_source": "fun f0(n) {\n    if (n < 1) {\n        return 1;\n    }\n    print 1 && f0(0);\n}\nwhile (f0(1)) {\n}\n",
+      "reduce_tests": 155,
+      "reduce_seconds": 2.01,
+      "reduce_complete": true
+    },
+    {
+      "name": "copyprop-no-kill",
+      "home": "copyprop",
+      "summary": "after x = y, a later assignment to y does not cancel the copy",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 8,
+          "seed": 7,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.75
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 8,
+          "seed": 7,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.78
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 8,
+          "seed": 7,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.4
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 17,
+          "seed": 16,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 1.98
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 21,
+          "seed": 20,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 3.02
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 8,
+          "seed": 7,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.34
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 27,
+          "seed": 26,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 2.19
+        }
+      },
+      "blamed": true,
+      "reduced_from": 37,
+      "reduced_to": 12,
+      "reduced_source": "var g0 = 0;\nvar f = 0;\ng0 = f;\nf = 1;\nvar k2 = 0;\nwhile (k2 < 1) {\n    k2 = 1;\n    if (g0) {\n        continue;\n    }\n    print 0;\n}\n",
+      "reduce_tests": 161,
+      "reduce_seconds": 2.43,
+      "reduce_complete": true
+    },
+    {
+      "name": "copyprop-meet-union",
+      "home": "copyprop",
+      "summary": "a copy available on ANY incoming path is used after a join (union, not intersection)",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "crash",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.14
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "crash",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.14
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.03
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.2
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 9,
+          "seed": 8,
+          "status": "crash",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 1.3
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 8,
+          "seed": 7,
+          "status": "crash",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.32
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 0.14
+        }
+      },
+      "blamed": true,
+      "reduced_from": 92,
+      "reduced_to": 13,
+      "reduced_source": "fun f0(p) {\n}\nfun f1(p) {\n    var e = 0;\n    var k0 = 0;\n    while (k0 < 1) {\n        k0 = 1;\n        e = f0(p);\n        p = 0 || 0 / g0;\n    }\n}\nvar g0 = 0;\ng0 = f1(0);\n",
+      "reduce_tests": 232,
+      "reduce_seconds": 3.39,
+      "reduce_complete": true
+    },
+    {
+      "name": "cse-no-kill",
+      "home": "cse",
+      "summary": "a remembered a ? b is reused after a or b has been reassigned",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 10,
+          "seed": 9,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.85
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 10,
+          "seed": 9,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.91
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 3,
+          "seed": 2,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.32
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 23,
+          "seed": 22,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 2.43
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 32,
+          "seed": 31,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 4.21
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 10,
+          "seed": 9,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.38
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 38,
+          "seed": 37,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 3.12
+        }
+      },
+      "blamed": true,
+      "reduced_from": 35,
+      "reduced_to": 5,
+      "reduced_source": "for (var k0 = 0; k0 < 5; k0 = k0 + 1) {\n    var g0 = k0;\n    g0 = 1 ^ 3 <= g0;\n    print 3 <= g0;\n}\n",
+      "reduce_tests": 156,
+      "reduce_seconds": 3.68,
+      "reduce_complete": true
+    },
+    {
+      "name": "cse-sub-commutes",
+      "home": "cse",
+      "summary": "a - b is treated as the same expression as b - a",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 73,
+          "seed": 72,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 5.61
+        },
+        "no-swap": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 35.71
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 227,
+          "seed": 226,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 10.43
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 126,
+          "seed": 125,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 16.21
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 98,
+          "seed": 97,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 8.98
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 73,
+          "seed": 72,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 4.73
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 118,
+          "seed": 117,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 10.45
+        }
+      },
+      "blamed": true,
+      "reduced_from": 73,
+      "reduced_to": 5,
+      "reduced_source": "fun f0(q) {\n    var d = 1073741824 - q;\n    print q - 1073741824;\n}\nvar a = f0(0);\n",
+      "reduce_tests": 115,
+      "reduce_seconds": 0.44,
+      "reduce_complete": true
+    },
+    {
+      "name": "cse-meet-union",
+      "home": "cse",
+      "summary": "an expression available on ANY incoming path is reused after a join",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.16
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.16
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.03
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.21
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.03
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.2
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 0.22
+        }
+      },
+      "blamed": true,
+      "reduced_from": 92,
+      "reduced_to": 8,
+      "reduced_source": "fun f2(p, q) {\n    if (g0 || q + p) {\n    }\n    if (q + p) {\n    }\n}\nvar g0 = 1;\ng0 = f2(0, 0);\n",
+      "reduce_tests": 161,
+      "reduce_seconds": 1.08,
+      "reduce_complete": true
+    },
+    {
+      "name": "cse-load-ignores-store",
+      "home": "cse",
+      "summary": "a remembered array read a[i] is reused after a store to a",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 9,
+          "seed": 8,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 0.8
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 9,
+          "seed": 8,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 0.83
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 9,
+          "seed": 8,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 0.44
+        },
+        "no-arrays": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 42.51
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 79,
+          "seed": 78,
+          "status": "mismatch",
+          "suspects": [
+            "cse"
+          ],
+          "seconds": 7.61
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 9,
+          "seed": 8,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 0.43
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 24,
+          "seed": 23,
+          "status": "mismatch",
+          "suspects": [],
+          "seconds": 2.2
+        }
+      },
+      "blamed": false,
+      "reduced_from": 54,
+      "reduced_to": 4,
+      "reduced_source": "var ga[8];\nga[0] = ga[0];\nga[0] = 1;\nprint ga[0];\n",
+      "reduce_tests": 81,
+      "reduce_seconds": 0.47,
+      "reduce_complete": true
+    },
+    {
+      "name": "call-keeps-globals",
+      "home": "constprop",
+      "summary": "a global's known constant value survives a call that may change it",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 18,
+          "seed": 17,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.86
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 18,
+          "seed": 17,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 1.91
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.74
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.15
+        },
+        "no-globals": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 31.53
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 13,
+          "seed": 12,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.5
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "constprop"
+          ],
+          "seconds": 0.17
+        }
+      },
+      "blamed": true,
+      "reduced_from": 97,
+      "reduced_to": 7,
+      "reduced_source": "fun f0() {\n    g0 = 0;\n}\nvar g0 = 1;\nvar g1 = 0;\ng1 = f0();\nprint g0;\n",
+      "reduce_tests": 92,
+      "reduce_seconds": 0.25,
+      "reduce_complete": true
+    },
+    {
+      "name": "copyprop-call-keeps-globals",
+      "home": "copyprop",
+      "summary": "a copy x = @g survives a call that may change @g",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.14
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.14
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.33
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 13,
+          "seed": 12,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 1.56
+        },
+        "no-globals": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 32.81
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 13,
+          "seed": 12,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.53
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "copyprop"
+          ],
+          "seconds": 0.17
+        }
+      },
+      "blamed": true,
+      "reduced_from": 92,
+      "reduced_to": 14,
+      "reduced_source": "fun f0() {\n    g0 = 0;\n}\nfun f1(p) {\n    print p;\n}\nfun f2() {\n    g0 = !ga[0];\n    var d = g0;\n    d = f1(f0() ^ d);\n}\nvar g0 = 0;\nvar ga[4];\ng0 = f2();\n",
+      "reduce_tests": 232,
+      "reduce_seconds": 1.52,
+      "reduce_complete": true
+    },
+    {
+      "name": "liveness-ignores-branch",
+      "home": "dce",
+      "summary": "liveness forgets that a conditional branch reads its condition",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.14
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.03
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.12
+        }
+      },
+      "blamed": true,
+      "reduced_from": 53,
+      "reduced_to": 4,
+      "reduced_source": "var k2 = 0;\nwhile (k2) {\n    k2 = 1;\n}\n",
+      "reduce_tests": 59,
+      "reduce_seconds": 0.65,
+      "reduce_complete": true
+    },
+    {
+      "name": "liveness-no-backedge",
+      "home": "dce",
+      "summary": "liveness makes one backward sweep instead of iterating to a fixed point",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.02
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.16
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.04
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.03
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "crash",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.28
+        }
+      },
+      "blamed": true,
+      "reduced_from": 53,
+      "reduced_to": 4,
+      "reduced_source": "var k2 = 0;\nwhile (k2 < 1) {\n    k2 = 1;\n}\n",
+      "reduce_tests": 67,
+      "reduce_seconds": 1.22,
+      "reduce_complete": true
+    },
+    {
+      "name": "liveness-return-ignores-globals",
+      "home": "dce",
+      "summary": "liveness forgets that a function's caller may read globals after it returns",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 3,
+          "seed": 2,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.54
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 3,
+          "seed": 2,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.51
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.71
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 15,
+          "seed": 14,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 1.64
+        },
+        "no-globals": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 32.88
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 4,
+          "seed": 3,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.26
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 20,
+          "seed": 19,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 1.4
+        }
+      },
+      "blamed": true,
+      "reduced_from": 204,
+      "reduced_to": 13,
+      "reduced_source": "fun f0(n) {\n    if (n < 1) {\n        return 0;\n    }\n    if (f0(n - 1) ^ g0) {\n        g0 = 0;\n    } else if (1) {\n        print 0;\n    } else {\n    }\n}\nvar g0 = 1;\nvar d = f0(3);\n",
+      "reduce_tests": 172,
+      "reduce_seconds": 0.98,
+      "reduce_complete": true
+    },
+    {
+      "name": "dce-deletes-call",
+      "home": "dce",
+      "summary": "a call whose result is unused is deleted, with its prints",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.14
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.14
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.44
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 5,
+          "seed": 4,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.37
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 6,
+          "seed": 5,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.71
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 15,
+          "seed": 14,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.61
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "dce"
+          ],
+          "seconds": 0.12
+        }
+      },
+      "blamed": true,
+      "reduced_from": 92,
+      "reduced_to": 5,
+      "reduced_source": "fun f2() {\n    print 0;\n}\nvar g0 = 0;\ng0 = f2();\n",
+      "reduce_tests": 73,
+      "reduce_seconds": 0.75,
+      "reduce_complete": true
+    },
+    {
+      "name": "regalloc-dead-def",
+      "home": "regalloc",
+      "summary": "a result that is never read gets no interference edges",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 7,
+          "seed": 6,
+          "status": "crash",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.76
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 7,
+          "seed": 6,
+          "status": "crash",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.76
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.76
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 6,
+          "seed": 5,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.4
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 18,
+          "seed": 17,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 2.32
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 15,
+          "seed": 14,
+          "status": "crash",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.65
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 11,
+          "seed": 10,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.53
+        }
+      },
+      "blamed": true,
+      "reduced_from": 132,
+      "reduced_to": 5,
+      "reduced_source": "fun f1() {\n}\nfor (var k6 = 0; k6 < 2; k6 = k6 + 1) {\n    var g = f1();\n}\n",
+      "reduce_tests": 164,
+      "reduce_seconds": 4.92,
+      "reduce_complete": true
+    },
+    {
+      "name": "regalloc-entry-params",
+      "home": "regalloc",
+      "summary": "parameters get no interference edges at the function's entry",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.15
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.15
+        },
+        "no-functions": {
+          "detected": false,
+          "programs": null,
+          "seed": null,
+          "status": null,
+          "suspects": [],
+          "seconds": 18.38
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 1,
+          "seed": 0,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.16
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 13,
+          "seed": 12,
+          "status": "crash",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 1.62
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 2,
+          "seed": 1,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.19
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 12,
+          "seed": 11,
+          "status": "crash",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.7
+        }
+      },
+      "blamed": true,
+      "reduced_from": 92,
+      "reduced_to": 5,
+      "reduced_source": "fun f1(p, q) {\n    print p;\n}\nvar g0 = 0;\ng0 = f1(1, 0);\n",
+      "reduce_tests": 102,
+      "reduce_seconds": 0.71,
+      "reduce_complete": true
+    },
+    {
+      "name": "regalloc-scratch-shared",
+      "home": "regalloc",
+      "summary": "two spilled operands of one instruction are both loaded into t0",
+      "by_setting": {
+        "default": {
+          "detected": true,
+          "programs": 20,
+          "seed": 19,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 2.03
+        },
+        "no-swap": {
+          "detected": true,
+          "programs": 39,
+          "seed": 38,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 3.52
+        },
+        "no-functions": {
+          "detected": true,
+          "programs": 76,
+          "seed": 75,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 2.89
+        },
+        "no-arrays": {
+          "detected": true,
+          "programs": 11,
+          "seed": 10,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.89
+        },
+        "no-globals": {
+          "detected": true,
+          "programs": 244,
+          "seed": 243,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 21.21
+        },
+        "no-recursion": {
+          "detected": true,
+          "programs": 81,
+          "seed": 80,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 5.05
+        },
+        "no-loop-control": {
+          "detected": true,
+          "programs": 14,
+          "seed": 13,
+          "status": "mismatch",
+          "suspects": [
+            "regalloc"
+          ],
+          "seconds": 0.87
+        }
+      },
+      "blamed": true,
+      "reduced_from": 103,
+      "reduced_to": 16,
+      "reduced_source": "fun f0(p, q) {\n}\nfun f1(p, q, r) {\n    if ((8 >> p ^ g0 & q) >= 0) {\n    } else {\n        f0(0, 0 < r > !p);\n        print 0;\n    }\n    if (r + r) {\n        var d = f0(8 >> p ^ q, 0);\n        if (p) {\n        }\n    }\n}\nvar g0 = 1;\ng0 = f1(0, -1, 0);\n",
+      "reduce_tests": 381,
+      "reduce_seconds": 1.52,
+      "reduce_complete": true
+    }
+  ],
+  "seconds": 823.6
+}

@@ -1,0 +1,36 @@
+// Arrays, for loops, break and continue, globals and recursion
+var calls = 0;          // a global: functions can read and change it
+var memo[32];           // a global array: every element starts at 0
+
+fun fib(n) {
+    calls = calls + 1;
+    if (n < 2) {
+        return n;
+    }
+    if (memo[n] != 0) {
+        return memo[n];
+    }
+    memo[n] = fib(n - 1) + fib(n - 2);
+    return memo[n];
+}
+
+var primes[10];
+var count = 0;
+for (var p = 2; count < 10; p = p + 1) {
+    var composite = 0;
+    for (var d = 2; d * d <= p; d = d + 1) {
+        if (p % d == 0) {
+            composite = 1;
+            break;
+        }
+    }
+    if (composite) {
+        continue;
+    }
+    primes[count] = p;
+    count = count + 1;
+}
+print primes[9];        // 29, the 10th prime
+print primes[-1];       // 29 again: indexes wrap around (-1 is the last element)
+print fib(30);          // 832040
+print calls;            // 59 calls, thanks to the memo table

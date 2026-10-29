@@ -1,0 +1,28 @@
+// Functions: a loop with an early exit, recursion, and a call used as a statement
+fun power(base, exp) {
+    var result = 1;
+    while (exp > 0) {
+        if (exp % 2 == 1) {
+            result = result * base;
+        }
+        base = base * base;
+        exp = exp / 2;
+    }
+    return result;
+}
+
+fun fib(n) {
+    if (n < 2) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fun show(x) {
+    print x;
+    return 0;
+}
+
+show(power(3, 13));
+print fib(15);
+print power(2, 31);
