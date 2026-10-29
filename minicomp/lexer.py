@@ -3,7 +3,7 @@
 Token kinds:
     INT      decimal literal 0 .. 2147483647
     IDENT    [A-Za-z_][A-Za-z0-9_]*   (not a keyword)
-    keyword  var print if else while  (kind is the word itself)
+    keyword  var print if else while for break continue fun return  (kind is the word itself)
     operator / punctuation            (kind is the symbol itself)
     EOF      end of input
 Whitespace and // comments are skipped.
@@ -20,13 +20,13 @@ from typing import List
 from .errors import CompileError
 from .ops import INT_MAX
 
-KEYWORDS = {"var", "print", "if", "else", "while"}
+KEYWORDS = {"var", "print", "if", "else", "while", "for", "break", "continue", "fun", "return"}
 
 # Longest first, so that maximal munch picks "<<" over "<".
 OPERATORS = sorted([
     "&&", "||", "==", "!=", "<=", ">=", "<<", ">>",
     "+", "-", "*", "/", "%", "&", "|", "^", "~", "!", "<", ">", "=",
-    "(", ")", "{", "}", ";",
+    "(", ")", "{", "}", "[", "]", ";", ",",
 ], key=len, reverse=True)
 
 

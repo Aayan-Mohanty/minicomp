@@ -36,6 +36,11 @@ def test_generator_covers_the_features_the_optimizer_needs():
     sources = [generate_source(s) for s in SEEDS]
     joined = "\n".join(sources)
     assert sum("while" in src for src in sources) > 200
+    assert sum("fun f0(" in src for src in sources) > 150               # functions ...
+    assert "fun f2(p, q, r)" in joined and "fun f1()" in joined        # ... with 0-3 parameters
+    assert "f0(" in joined.replace("fun f0(", "")                      # ... that are called
+    assert any(line.startswith("        ") and line.strip().startswith("return ")
+               for line in joined.splitlines())                         # early returns
     assert "else if" in joined and "} else {" in joined
     assert "2147483647" in joined                        # edge-case constant
     assert any(f"{v} / {v}" in joined for v in "abcdefgh")   # x op x pattern
@@ -47,7 +52,7 @@ def test_generator_covers_the_features_the_optimizer_needs():
 # ---------------------------------------------------------------- harness, correct compiler
 def test_correct_compiler_has_no_failures():
     report = campaign(120, seed=500)
-    assert report.failures == [] and report.ok == 120
+    assert report.failures == [] and report.ok == 120 and report.timeouts == 0
     assert all(n > 0 for n in report.pass_activity.values())   # every pass was exercised
     assert report.size_after < report.size_before
 
@@ -56,8 +61,9 @@ def test_single_program_verdict_lists_every_configuration():
     v = check_source("var a = 6; print a * 7;")
     assert v.status == "ok"
     assert set(v.outputs) == {"reference", "O0", "O1", "only:constprop", "only:unreachable",
-                              "only:copyprop", "only:cse", "only:dce"}
+                              "only:copyprop", "only:cse", "only:dce", "machine"}
     assert v.code_size["O1"] == 1                         # just `print 42`
+    assert v.code_size["machine"] == 1
 
 
 def test_non_terminating_program_is_skipped_not_blamed():

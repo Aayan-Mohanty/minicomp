@@ -209,9 +209,9 @@ svg.cfg text { font-family: var(--mono); }
       <button role="tab" id="t-cfg" aria-controls="p-cfg" aria-selected="false" tabindex="-1">cfg<span class="k">alt+5</span></button>
       <button role="tab" id="t-fuzz" aria-controls="p-fuzz" aria-selected="false" tabindex="-1">fuzz<span class="k">alt+6</span></button>
     </div>
-    <div class="panel" role="tabpanel" id="p-diff" aria-labelledby="t-diff"><p class="empty">Compile a program to run it eight ways and compare the outputs.</p></div>
+    <div class="panel" role="tabpanel" id="p-diff" aria-labelledby="t-diff"><p class="empty">Compile a program to run it nine ways and compare the outputs.</p></div>
     <div class="panel" role="tabpanel" id="p-front" aria-labelledby="t-front" hidden><p class="empty">Tokens, syntax tree and symbol table appear here.</p></div>
-    <div class="panel" role="tabpanel" id="p-tac" aria-labelledby="t-tac" hidden><p class="empty">Three-address code before and after optimization appears here.</p></div>
+    <div class="panel" role="tabpanel" id="p-tac" aria-labelledby="t-tac" hidden><p class="empty">Three-address code before and after optimization, and the machine code after register allocation, appear here.</p></div>
     <div class="panel" role="tabpanel" id="p-trace" aria-labelledby="t-trace" hidden><p class="empty">Step through the optimizer pass by pass.</p></div>
     <div class="panel" role="tabpanel" id="p-cfg" aria-labelledby="t-cfg" hidden><p class="empty">The control-flow graph appears here.</p></div>
     <div class="panel" role="tabpanel" id="p-fuzz" aria-labelledby="t-fuzz" hidden>
@@ -226,7 +226,7 @@ svg.cfg text { font-family: var(--mono); }
       </div>
       <div id="fz-kpis" class="kpis" style="margin-top:0"></div>
       <div id="fz-grid" class="grid" aria-label="One square per program"></div>
-      <div id="fz-tail"><p class="empty">Each square is one random program, run eight ways. Green: all agree. Red: compiler bug. Grey: did not finish. Click a square to open its program.</p></div>
+      <div id="fz-tail"><p class="empty">Each square is one random program, run nine ways. Green: all agree. Red: compiler bug. Grey: did not finish. Click a square to open its program.</p></div>
     </div>
   </section>
 </div>
@@ -243,7 +243,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const API = "/api/v1";
 const codeEl = $("#code"), gutter = $("#gutter");
-let errLines = new Set(), last = null, examples = [], cfgLevel = "O1", traceIdx = 0, stream = null;
+let errLines = new Set(), last = null, examples = [], cfgLevel = "O1", cfgUnit = "main", traceIdx = 0, stream = null;
 
 /* ---------- console log ---------- */
 function log(msg, cls = "") {
@@ -278,7 +278,7 @@ health(); setInterval(health, 30000);
 /* ---------- pipeline ---------- */
 const STAGES = [
   ["lex", "lex", ""], ["parse", "parse", ""], ["sema", "sema", ""], ["ref", "ref", "ref"],
-  ["tac", "tac", "cmp"], ["cfg", "cfg", "cmp"], ["opt", "opt", "cmp"], ["vm", "vm", "cmp"], ["diff", "diff", "diff"],
+  ["tac", "tac", "cmp"], ["cfg", "cfg", "cmp"], ["opt", "opt", "cmp"], ["vm", "vm", "cmp"], ["regs", "regs", "cmp"], ["diff", "diff", "diff"],
 ];
 function drawPipe(state = {}) {
   $("#pipe").innerHTML = STAGES.map(([key, name, kind]) => {
@@ -359,7 +359,7 @@ $("#run").addEventListener("click", compile);
 const PHASE_STAGE = { lexical: "lex", input: "lex", syntax: "parse", semantic: "sema" };
 const RUNS = { "reference": ["ref", "reference interpreter"], "O0": ["cmp", "O0 unoptimized"], "O1": ["cmp", "O1 all passes"],
   "only:constprop": ["cmp", "only constprop"], "only:unreachable": ["cmp", "only unreachable"], "only:copyprop": ["cmp", "only copyprop"],
-  "only:cse": ["cmp", "only cse"], "only:dce": ["cmp", "only dce"] };
+  "only:cse": ["cmp", "only cse"], "only:dce": ["cmp", "only dce"], "machine": ["cmp", "machine code (O1 + registers)"] };
 
 function render(res) {
   last = res; errLines = new Set(); traceIdx = 0;
@@ -380,20 +380,21 @@ function render(res) {
     return;
   }
   renderGutter();
-  const c = res.counts, v = res.verdict, agree = 8 - v.failing.length, timeout = v.status === "timeout";
+  const c = res.counts, v = res.verdict, runs = Object.keys(v.outputs).length, agree = runs - v.failing.length, timeout = v.status === "timeout";
   const refLen = Array.isArray(v.outputs.reference) ? v.outputs.reference.length : 0;
   drawPipe({
     lex: { cls: "ok", ms: t.lex, ct: `${c.tokens} tokens` }, parse: { cls: "ok", ms: t.parse, ct: `${c.ast_nodes} nodes` },
     sema: { cls: "ok", ms: t.sema, ct: `${c.symbols} symbols` }, ref: { cls: "ok", ms: t.ref, ct: timeout ? "step limit" : `${refLen} values` },
-    tac: { cls: "ok", ms: t.tac, ct: `${c.tac_O0} instr` }, cfg: { cls: "ok", ms: t.cfg, ct: `${c.blocks_O0} blocks` },
+    tac: { cls: "ok", ms: t.tac, ct: `${c.tac_O0} instr${c.functions ? ` · ${c.functions} fn` : ""}` }, cfg: { cls: "ok", ms: t.cfg, ct: `${c.blocks_O0} blocks` },
     opt: { cls: "ok", ms: t.opt, ct: `${c.tac_O0}→${c.tac_O1} · ${c.opt_rounds} rnd` },
     vm: { cls: timeout ? "skip" : "ok", ms: t.vm, ct: res.steps.O0 != null ? `${res.steps.O0}→${res.steps.O1} steps` : "skipped" },
-    diff: { cls: timeout ? "skip" : (v.status === "ok" ? "ok" : "bad"), ms: t.diff, ct: timeout ? "no reference" : `${agree}/8 agree` },
+    regs: { cls: "ok", ms: t.regs, ct: `${res.machine.registers} regs · ${c.spilled} spilled` },
+    diff: { cls: timeout ? "skip" : (v.status === "ok" ? "ok" : "bad"), ms: t.diff, ct: timeout ? "no reference" : `${agree}/${runs} agree` },
   });
   renderDiff(); $("#p-front").innerHTML = frontHtml(res); renderTac(); renderTrace(); renderCfg();
   const total = Object.values(t).reduce((a, b) => a + b, 0);
   const cls = v.status === "ok" ? "okc" : timeout ? "dimc" : "bugc";
-  log(`compile <span class="${cls}">${timeout ? "timeout" : v.status === "ok" ? "8/8 agree" : v.status.toUpperCase() + " suspects=" + (v.suspects.join(",") || "interaction")}</span>  ${c.tac_O0}→${c.tac_O1} instr  ${total.toFixed(1)}ms server / ${res._rt}ms total <span class="dimc">req ${res._rid}</span>`);
+  log(`compile <span class="${cls}">${timeout ? "timeout" : v.status === "ok" ? `${runs}/${runs} agree` : v.status.toUpperCase() + " suspects=" + (v.suspects.join(",") || "interaction")}</span>  ${c.tac_O0}→${c.tac_O1} instr  ${total.toFixed(1)}ms server / ${res._rt}ms total <span class="dimc">req ${res._rid}</span>`);
 }
 
 function valsHtml(out, ref) {
@@ -403,10 +404,10 @@ function valsHtml(out, ref) {
   return shown + (out.length > 60 ? `<span class="dimc">… +${out.length - 60}</span>` : "") + (Array.isArray(ref) && ref.length !== out.length ? ` <span class="bugc">(${out.length} values, reference has ${ref.length})</span>` : "");
 }
 function renderDiff() {
-  const v = last.verdict, ref = v.outputs.reference;
-  const head = v.status === "ok" ? `<div class="verdict ok"><span class="big">8/8 agree</span><span class="dimc">reference and every compiled version printed the same values</span></div>`
+  const v = last.verdict, ref = v.outputs.reference, runs = Object.keys(v.outputs).length;
+  const head = v.status === "ok" ? `<div class="verdict ok"><span class="big">${runs}/${runs} agree</span><span class="dimc">reference and every compiled version printed the same values</span></div>`
     : v.status === "timeout" ? `<div class="verdict neutral"><span class="big">no verdict</span><span class="dimc">the reference interpreter hit its step limit</span></div>`
-    : `<div class="verdict bad"><span class="big">${esc(v.status)}</span><span class="dimc">suspect passes: ${esc(v.suspects.join(", ") || "only with all passes together")}</span></div>`;
+    : `<div class="verdict bad"><span class="big">${esc(v.status)}</span><span class="dimc">suspects: ${esc(v.suspects.join(", ") || "only with all passes together")}</span></div>`;
   if (v.status === "timeout") { $("#p-diff").innerHTML = head; return; }
   const rows = Object.keys(RUNS).filter((k) => k in v.outputs).map((k) => {
     const [kind, label] = RUNS[k];
@@ -424,7 +425,7 @@ function frontHtml(res) {
     const cls = t.kind === "INT" ? "int" : t.kind === "IDENT" ? "" : /^[a-z]+$/.test(t.kind) ? "kw" : "op";
     return `<span class="tok ${cls}" title="${t.kind} @${t.line}:${t.col}">${esc(t.text)}</span>`;
   }).join("");
-  const syms = res.symbols ? `<h3>// symbol table (${res.symbols.length})</h3>${res.symbols.length ? `<table class="tbl"><thead><tr><th>name</th><th>declared</th><th>depth</th></tr></thead><tbody>${res.symbols.map((s) => `<tr><td class="cmpc">${esc(s.name)}</td><td>${s.line}:${s.col}</td><td>${s.depth}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">No declarations.</p>`}` : "";
+  const syms = res.symbols ? `<h3>// symbol table (${res.symbols.length})</h3>${res.symbols.length ? `<table class="tbl"><thead><tr><th>name</th><th>kind</th><th>in</th><th>declared</th><th>depth</th></tr></thead><tbody>${res.symbols.map((s) => `<tr><td class="cmpc">${esc(s.name)}</td><td>${esc(s.kind || "var")}</td><td>${s.owner ? esc(s.owner) + "()" : "top level"}</td><td>${s.line}:${s.col}</td><td>${s.depth}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">No declarations.</p>`}` : "";
   return `<h3>// tokens (${res.tokens.length - 1})</h3><div class="toks">${toks}</div><h3>// abstract syntax tree</h3><div class="tree">${tree(res.ast)}</div>${syms}`;
 }
 function tree(node, ind = "", label = "") {
@@ -449,7 +450,12 @@ function codeHtml(lines, added) {
 }
 function renderTac() {
   const box = (title, lines, cls) => `<div class="code"><div class="hd"><span class="${cls}">${title}</span><span>${lines.filter((l) => !l.endsWith(":")).length} instr</span></div><pre>${codeHtml(lines) || " (empty)"}</pre></div>`;
-  $("#p-tac").innerHTML = `<div class="cols">${box("// -O0 unoptimized", last.tac.O0, "")}${box("// -O1 optimized", last.tac.O1, "cmpc")}</div>`;
+  const m = last.machine;
+  const alloc = m.units.map((u) => `<tr><td class="cmpc">${esc(u.unit)}</td><td>${u.variables}</td><td>${u.registers_used}</td><td>${u.spilled.length ? esc(u.spilled.join(", ")) : "<span class='dimc'>none</span>"}</td></tr>`).join("");
+  $("#p-tac").innerHTML = `<div class="cols">${box("// -O0 unoptimized", last.tac.O0, "")}${box("// -O1 optimized", last.tac.O1, "cmpc")}</div>
+    <h3>// machine code: -O1 after register allocation (${m.registers} registers r0–r${m.registers - 1}, scratch t0 t1, [sN] = memory slot)</h3>
+    <div class="cols">${box("// register machine", m.code, "cmpc")}<div><table class="tbl"><thead><tr><th>unit</th><th>variables</th><th>registers used</th><th>spilled to memory</th></tr></thead><tbody>${alloc}</tbody></table>
+    ${m.steps != null ? `<p class="dimc">${m.steps.toLocaleString()} machine instructions executed.</p>` : ""}</div></div>`;
 }
 
 /* ---------- optimizer trace ---------- */
@@ -478,11 +484,15 @@ function renderTrace() {
 
 /* ---------- CFG ---------- */
 function renderCfg() {
-  const blocks = last.cfg[cfgLevel];
+  const units = last.cfg[cfgLevel];
+  if (!units.some((u) => u.unit === cfgUnit)) cfgUnit = units[0].unit;
+  const unit = units.find((u) => u.unit === cfgUnit), blocks = unit.blocks;
+  const unitSeg = units.length > 1 ? `<div class="seg" role="group" aria-label="Function">${units.map((u) => `<button type="button" data-u="${esc(u.unit)}" aria-pressed="${u.unit === cfgUnit}">${esc(u.unit)}</button>`).join("")}</div>` : "";
   $("#p-cfg").innerHTML = `<div class="fz-head"><div class="seg" role="group" aria-label="Optimization level"><button type="button" data-l="O0" aria-pressed="${cfgLevel === "O0"}">-O0</button><button type="button" data-l="O1" aria-pressed="${cfgLevel === "O1"}">-O1</button></div>
-    <span class="dimc">${blocks.length} basic blocks · dashed = loop back edge</span></div>
+    ${unitSeg}<span class="dimc">${blocks.length} basic blocks${unit.params.length ? ` · parameters ${esc(unit.params.join(", "))}` : ""} · dashed = loop back edge</span></div>
     ${blocks.length ? `<div class="graph">${drawCfg(blocks)}</div>` : `<p class="empty">No instructions left after optimization.</p>`}`;
-  $("#p-cfg").querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => { cfgLevel = b.dataset.l; renderCfg(); }));
+  $("#p-cfg").querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cfgLevel = b.dataset.l; renderCfg(); }));
+  $("#p-cfg").querySelectorAll("[data-u]").forEach((b) => b.addEventListener("click", () => { cfgUnit = b.dataset.u; renderCfg(); }));
 }
 function drawCfg(blocks) {
   const nodes = new Map(blocks.map((b) => [b.id, { ...b, succ: b.succ.map((s) => s === "EXIT" ? "X" : s) }]));
@@ -537,7 +547,7 @@ function fzReset(n, seed) {
 function fzKpis() {
   const el = (performance.now() - fz.t0) / 1000, judged = fz.done - fz.to;
   $("#fz-kpis").innerHTML = `<div class="kpi"><b>${fz.done}/${fz.n}</b><span>programs run</span></div>
-    <div class="kpi"><b class="okc">${fz.ok}</b><span>all 8 runs agree</span></div>
+    <div class="kpi"><b class="okc">${fz.ok}</b><span>all 9 runs agree</span></div>
     <div class="kpi"><b class="${fz.bad.length ? "bugc" : ""}">${fz.bad.length}</b><span>compiler bugs</span></div>
     <div class="kpi"><b>${judged && fz.s0 ? Math.round(100 * (1 - fz.s1 / fz.s0)) : 0}%</b><span>code removed by -O1</span></div>
     <div class="kpi"><b>${el ? (fz.done / el).toFixed(1) : "0.0"}/s</b><span>${el.toFixed(1)} s elapsed</span></div>`;

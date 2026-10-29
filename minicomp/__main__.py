@@ -6,9 +6,11 @@
     python3 -m minicomp fmt     FILE    print the program back as formatted source
     python3 -m minicomp run     FILE    check and run with the reference interpreter
     python3 -m minicomp tac     FILE [-O1]   show three-address code (optimized with -O1)
-    python3 -m minicomp cfg     FILE [-O1]   show basic blocks and the control-flow graph
+    python3 -m minicomp cfg     FILE [-O1]   show basic blocks and the control-flow graph of each unit
     python3 -m minicomp vm      FILE [-O1]   compile and run on the TAC virtual machine
-    python3 -m minicomp compare FILE    run reference, -O0, -O1 and each pass alone; report differences
+    python3 -m minicomp asm     FILE [--registers K]   -O1, then register allocation: machine code
+    python3 -m minicomp compare FILE    run reference, -O0, -O1, each pass alone and the machine
+                                        code; report differences
     python3 -m minicomp generate --seed N          print the random program for seed N
     python3 -m minicomp fuzz -n COUNT [--seed N] [--out DIR] [--stop-after K]
                                         differential testing campaign over generated programs
@@ -17,9 +19,12 @@
     python3 -m minicomp evaluate [-n N] [--out results.json] [--no-reduce]
                                         run the planted-bug evaluation
 
-Options for every command that compiles: --bug NAME plants one optimizer bug
-(see `bugs`) for that run only. --swap makes the generator sometimes reuse
-expressions with their operands swapped.
+Options for every command that compiles: --bug NAME plants one compiler bug
+(see `bugs`) for that run only. Generator options (generate, fuzz, reduce
+--seed): --no-swap (never write a reused expression with swapped operands),
+--no-functions (no functions or calls), --no-arrays, --no-globals (functions
+use no top-level variables), --no-recursion, --no-loop-control (no `for`,
+`break` or `continue`).
 
 Exit status: 0 = success, 1 = compile error, 2 = usage/file error, 3 = step limit hit,
 4 = miscompilation found.
@@ -33,11 +38,12 @@ from dataclasses import fields, is_dataclass
 
 from .errors import CompileError
 from . import vm
-from .cfg import build_cfg
+from .cfg import unit_cfgs
 from .interp import DEFAULT_FUEL, OutOfFuel, run
 from .lower import lower
 from .opt import ALL_PASSES, optimize
-from .tac import format_code
+from .regalloc import K, allocate, run_machine
+from .tac import format_code, instruction_count
 from .bugs import BUGS, planted
 from .evaluate import evaluate
 from .generator import GenConfig, generate, generate_source
@@ -93,7 +99,7 @@ def reduce_cmd(program, name, passes, args) -> int:
     try:
         res = reduce_program(program, passes=passes, max_tests=args.max_tests)
     except NotAFailure:
-        print(f"nothing to reduce: all 8 runs of {name} agree"
+        print(f"nothing to reduce: all 9 runs of {name} agree"
               + ("" if args.bug else " (plant a bug with --bug NAME to try the reducer)"), file=sys.stderr)
         return 0
     print(res.source, end="")
@@ -110,7 +116,7 @@ def reduce_cmd(program, name, passes, args) -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="minicomp", description="Mini language compiler")
-    ap.add_argument("command", choices=["tokens", "ast", "symbols", "fmt", "run", "tac", "cfg", "vm",
+    ap.add_argument("command", choices=["tokens", "ast", "symbols", "fmt", "run", "tac", "cfg", "vm", "asm",
                                         "compare", "generate", "fuzz", "reduce", "bugs", "evaluate"])
     ap.add_argument("file", nargs="?")
     ap.add_argument("--seed", type=int, default=0, help="generate/fuzz: (first) seed")
@@ -123,7 +129,14 @@ def main(argv=None) -> int:
     ap.add_argument("--passes", help=f"comma-separated subset of: {','.join(ALL_PASSES)}")
     ap.add_argument("--fuel", type=int, default=DEFAULT_FUEL, help="step limit for run")
     ap.add_argument("--bug", help="plant this optimizer bug for the run (evaluate: only this bug)")
-    ap.add_argument("--swap", action="store_true", help="generator: sometimes swap operands of reused expressions")
+    ap.add_argument("--no-swap", action="store_true",
+                    help="generator: never write a reused expression with its operands swapped")
+    ap.add_argument("--no-functions", action="store_true", help="generator: no functions or calls")
+    ap.add_argument("--no-arrays", action="store_true", help="generator: no arrays")
+    ap.add_argument("--no-globals", action="store_true", help="generator: functions use no top-level variables")
+    ap.add_argument("--no-recursion", action="store_true", help="generator: no recursive functions")
+    ap.add_argument("--no-loop-control", action="store_true", help="generator: no for, break or continue")
+    ap.add_argument("--registers", type=int, default=K, help=f"asm: number of registers (default {K})")
     ap.add_argument("--no-reduce", action="store_true", help="evaluate: skip reducing the failures")
     ap.add_argument("--max-tests", type=int, default=4000, help="reduce: candidate budget")
     args = ap.parse_args(argv)
@@ -154,10 +167,17 @@ def run_evaluation(args) -> int:
 
 def _main(args, ap) -> int:
     passes = args.passes.split(",") if args.passes else ALL_PASSES
-    gen_config = GenConfig(swap_reuse=0.5) if args.swap else None
+    gen_config = None
+    if (args.no_swap or args.no_functions or args.no_arrays or args.no_globals
+            or args.no_recursion or args.no_loop_control):
+        gen_config = GenConfig(swap_reuse=0.0 if args.no_swap else GenConfig.swap_reuse,
+                               max_functions=0 if args.no_functions else GenConfig.max_functions,
+                               arrays=not args.no_arrays, globals=not args.no_globals,
+                               recursion=not args.no_recursion, loop_control=not args.no_loop_control)
     if args.command == "bugs":
+        width = max(len(b) for b in BUGS) + 2
         for b in BUGS.values():
-            print(f"{b.name:<26} {b.home:<12} {b.summary}")
+            print(f"{b.name:<{width}} {b.home:<12} {b.summary}")
         return 0
     if args.command == "reduce" and args.file is None:
         return reduce_cmd(generate(args.seed, gen_config), f"seed {args.seed}", passes, args)
@@ -196,7 +216,12 @@ def _main(args, ap) -> int:
         table = check(program)
         if args.command == "symbols":
             for s in table.all_symbols:
-                print(f"{s.name:<12} declared at {s.line}:{s.col}  scope depth {s.depth}")
+                where = f"in {s.owner}()" if s.owner else "top level"
+                kind = f"array[{s.size}]" if s.kind == "array" else s.kind
+                print(f"{s.name:<12} {kind:<11} declared at {s.line}:{s.col}  {where}, scope depth {s.depth}")
+            for f, names in table.globals_used.items():
+                if names:
+                    print(f"{f}() uses globals: {', '.join(sorted(names))}")
             return 0
         if args.command == "run":
             for value in run(program, fuel=args.fuel):
@@ -208,13 +233,30 @@ def _main(args, ap) -> int:
         if args.command == "reduce":
             return reduce_cmd(program, args.file, passes, args)
         code0 = lower(program)
+        if args.command == "asm":
+            if args.registers < 1:
+                ap.error("--registers must be at least 1")
+            machine = allocate(optimize(code0, passes), args.registers)
+            print("\n".join(machine.text()).lstrip("\n"))
+            print(f"\n; {args.registers} registers r0-r{args.registers - 1}, scratch t0 t1", file=sys.stderr)
+            for u in machine.units:
+                spilled = f"; spilled to memory: {', '.join(u.spilled)}" if u.spilled else ""
+                nv, nr = len(u.locations), u.registers_used
+                print(f"; {u.name}: {nv} variable{'' if nv == 1 else 's'} in {nr} register{'' if nr == 1 else 's'}"
+                      f"{spilled}", file=sys.stderr)
+            return 0
         code = optimize(code0, passes) if (args.opt == 1 or args.passes) else code0
         if args.command == "tac":
             print(format_code(code))
-            print(f"\n; {len(code)} instructions (unoptimized: {len(code0)})")
+            print(f"\n; {instruction_count(code)} instructions, not counting labels "
+                  f"(unoptimized: {instruction_count(code0)})")
             return 0
         if args.command == "cfg":
-            print(build_cfg(code))
+            parts = []
+            for unit, graph in unit_cfgs(code):
+                head = "main" if unit.header is None else str(unit.header)
+                parts.append(f"== {head}\n{graph}")
+            print("\n\n".join(parts))
             return 0
         if args.command == "vm":
             res = vm.run(code, fuel=args.fuel)

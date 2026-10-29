@@ -8,7 +8,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import webapp.server as srv
-from minicomp.generator import generate
+from minicomp.generator import generate, generate_source
 from minicomp.lower import lower
 from minicomp.opt import optimize
 from minicomp.semantic import check
@@ -20,11 +20,29 @@ EXAMPLES = Path(__file__).parent.parent / "examples"
 def test_compile_returns_every_stage_with_timings():
     r = srv.compile_all((EXAMPLES / "gcd.mini").read_text())
     assert r["ok"] and r["verdict"]["status"] == "ok"
-    assert set(r["timings_ms"]) == {"lex", "parse", "sema", "ref", "tac", "cfg", "opt", "vm", "diff"}
-    assert r["counts"]["tokens"] == 36 and r["counts"]["tac_O0"] == 13 and r["counts"]["tac_O1"] == 12
-    assert r["verdict"]["outputs"]["reference"] == [21] and len(r["verdict"]["outputs"]) == 8
+    assert set(r["timings_ms"]) == {"lex", "parse", "sema", "ref", "tac", "cfg", "opt", "vm", "regs", "diff"}
+    assert r["counts"]["tokens"] == 36 and r["counts"]["tac_O0"] == 10 and r["counts"]["tac_O1"] == 9
+    assert r["verdict"]["outputs"]["reference"] == [21] and len(r["verdict"]["outputs"]) == 9
     assert r["tac"]["O1"] == r["trace"][-1]["code"]            # trace ends at the final code
     assert r["steps"]["O1"] < r["steps"]["O0"]
+    assert r["machine"]["units"][0]["spilled"] == [] and r["machine"]["steps"] > 0
+
+
+def test_compile_shows_each_function():
+    r = srv.compile_all((EXAMPLES / "functions.mini").read_text())
+    assert r["verdict"]["outputs"]["reference"] == [1594323, 610, -2147483648]
+    assert [u["unit"] for u in r["cfg"]["O1"]] == ["main", "power", "fib", "show"]
+    assert [u["unit"] for u in r["machine"]["units"]] == ["main", "power", "fib", "show"]
+    assert {(s["name"], s["kind"]) for s in r["symbols"]} >= {("fib", "function"), ("n", "param")}
+
+
+def test_compile_shows_arrays_globals_and_loops():
+    r = srv.compile_all((EXAMPLES / "arrays.mini").read_text())
+    assert r["verdict"]["status"] == "ok" and r["verdict"]["outputs"]["reference"] == [29, 29, 832040, 59]
+    kinds = {(s["name"], s["kind"]) for s in r["symbols"]}
+    assert {("memo", "array[32]"), ("primes", "array[10]"), ("calls", "var")} <= kinds
+    assert "array @memo[32]" in r["tac"]["O0"]                # a global array, created in main's prologue
+    assert any("@calls" in line for line in r["machine"]["code"])
 
 
 def test_trace_reaches_exactly_what_the_optimizer_produces():
@@ -32,7 +50,7 @@ def test_trace_reaches_exactly_what_the_optimizer_produces():
         p = generate(seed)
         check(p)
         code0 = lower(p)
-        final, trace, _ = srv.traced_optimize(code0)
+        final, trace, _ = srv.traced_optimize(code0)       # programs with functions too
         assert final == optimize(code0), seed
         assert trace[0]["pass"] == "input" and all(s["changed"] for s in trace[1:])
 
@@ -87,7 +105,7 @@ def test_http_api_end_to_end():
         assert status == 200 and r["tac"]["O1"] == ["print 42"] and r["verdict"]["status"] == "ok"
 
         status, _, body = call(base + "/api/v1/generate", {"seed": 3})
-        assert json.loads(body)["code"].startswith("var b = 60;")
+        assert json.loads(body)["code"] == generate_source(3)
 
         status, headers, body = call(base + "/api/v1/fuzz/stream?n=3&seed=0")
         assert headers["Content-Type"] == "text/event-stream"

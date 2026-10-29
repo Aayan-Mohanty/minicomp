@@ -38,6 +38,13 @@ def mod(a: int, b: int) -> int:
     return wrap(a - wrap(div(a, b) * b))
 
 
+def element(i: int, n: int) -> int:
+    """Array element number for index i in an n-element array: i mod n,
+    with the remainder in 0..n-1 (so -1 is the last element)."""
+    r = mod(i, n)                         # truncating remainder: sign follows i
+    return r + n if r < 0 else r
+
+
 def binary(op: str, a: int, b: int) -> int:
     """Apply a binary operator to two in-range values."""
     if op == "+":  return wrap(a + b)

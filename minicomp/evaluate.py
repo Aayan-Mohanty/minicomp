@@ -13,10 +13,16 @@ A baseline campaign on the CORRECT compiler for each generator setting
 measures false alarms; there should be none, because every Mini program
 has exactly one correct output.
 
-Generator settings compared:
-  default      the generator as used everywhere else in the project
-  swap         same, plus reused subexpressions sometimes written with their
-               operands swapped (GenConfig.swap_reuse = 0.5)
+Generator settings compared (each turns ONE feature of the default off):
+  default          the generator as used everywhere else in the project
+  no-swap          reused subexpressions are never written with their
+                   operands swapped
+  no-functions     programs without functions or calls (so also without
+                   globals used by functions, and without recursion)
+  no-arrays        no array declarations, reads or writes
+  no-globals       functions use no top-level variables or arrays
+  no-recursion     no function calls itself
+  no-loop-control  no `for` loops, `break` or `continue`
 """
 
 from __future__ import annotations
@@ -34,7 +40,12 @@ from .reduce import reduce_program
 
 SETTINGS: Dict[str, GenConfig] = {
     "default": GenConfig(),
-    "swap": GenConfig(swap_reuse=0.5),
+    "no-swap": GenConfig(swap_reuse=0.0),
+    "no-functions": GenConfig(max_functions=0),
+    "no-arrays": GenConfig(arrays=False),
+    "no-globals": GenConfig(globals=False),
+    "no-recursion": GenConfig(recursion=False),
+    "no-loop-control": GenConfig(loop_control=False),
 }
 
 
@@ -101,7 +112,7 @@ class EvalReport:
             found = [b.by_setting[s].programs for b in self.bugs if b.by_setting[s].detected]
             med = _num(statistics.median(found)) if found else "-"
             lines.append(f"- {s}: {len(found)}/{total} bugs found; median programs to first detection: {med}")
-        lines.append(f"- either setting: {self.detected()}/{total} bugs found")
+        lines.append(f"- any setting: {self.detected()}/{total} bugs found")
         blamed = [b.blamed for b in self.bugs if b.blamed is not None]
         lines.append(f"- correct pass blamed: {sum(blamed)}/{len(blamed)} detected bugs")
         red = [(b.reduced_from, b.reduced_to) for b in self.bugs if b.reduced_to is not None]

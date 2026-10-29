@@ -8,17 +8,27 @@ removes everything else automatically, in the style of delta debugging
 A candidate change is KEPT only if the program is still "interesting":
   1. it still passes semantic analysis (no undeclared variables),
   2. the reference interpreter still finishes (no infinite loop created),
-  3. exactly the same compiled versions still fail, in the same way
+  3. every compiled version that failed still fails, in the same way
      (mismatch stays mismatch, crash stays crash).
-Rule 3 stops the reducer from drifting onto a different bug, and keeps the
-blame (the suspect passes) the same as in the original failure.
+Rule 3 stops the reducer from drifting onto a different bug. (Versions
+that passed are not re-run while reducing, so the smaller program may make
+more versions fail than the original did; the final verdict reports them.)
 
-Changes are tried in three families, repeated until none succeeds (a fixed
+Changes are tried in four families, repeated until none succeeds (a fixed
 point) or the test budget runs out:
-  statements   delete chunks of each statement list: half the list, then
+  statements   delete chunks of each statement list (including whole
+               functions and function bodies): half the list, then
                quarters, ... down to single statements
-  structure    replace an if / while / block by its body; drop an else
+  structure    replace an if / while / for / block by its body (a for loop
+               also by its first part followed by its body); drop an else
   expressions  replace an expression by 0, by 1, or by one of its operands
+               (a call by one of its arguments)
+  parameters   remove a function parameter together with the matching
+               argument at every call
+
+At a fixed point the result is 1-minimal with respect to these changes:
+no single one of them keeps the failure. It is not necessarily the
+smallest failing program (finding that is infeasible in general).
 
 Each change is made in place and undone if it is not interesting, so the
 reducer never holds more than one copy of the program.
@@ -32,8 +42,9 @@ from dataclasses import dataclass, fields, is_dataclass
 from typing import Callable, Iterator, List, Optional, Sequence, Tuple
 
 from .harness import Verdict, check_program
-from .nodes import (Assign, Binary, Block, If, IntLit, Print, Program, Unary,
-                    Var, VarDecl, While)
+from .nodes import (ArrayDecl, Assign, Binary, Block, Break, Call, CallStmt, Continue, For,
+                    FunDecl, If, Index, IndexAssign, IntLit, Print, Program, Return, Unary, Var,
+                    VarDecl, While)
 from .opt import ALL_PASSES
 from .printer import to_source
 from .semantic import SemanticErrors, check
@@ -52,7 +63,7 @@ class ReduceResult:
     original_source: str
     source: str                   # the reduced program
     program: Program
-    verdict: Verdict              # full 8-way verdict of the reduced program
+    verdict: Verdict              # full 9-way verdict of the reduced program
     tests: int                    # candidate programs checked
     seconds: float
     before: dict                  # {"lines", "statements", "nodes"}
@@ -71,7 +82,8 @@ def _count(node, statements_only: bool = False) -> int:
         return sum(_count(n, statements_only) for n in node)
     if not is_dataclass(node):
         return 0
-    stmt_types = (VarDecl, Assign, Print, If, While, Block)
+    stmt_types = (VarDecl, ArrayDecl, Assign, IndexAssign, Print, If, While, For, Break, Continue,
+                  Block, CallStmt, Return, FunDecl)
     own = 1 if (not statements_only or isinstance(node, stmt_types)) else 0
     return own + sum(_count(getattr(node, f.name), statements_only) for f in fields(node) if f.compare)
 
@@ -85,7 +97,10 @@ def statement_lists(program: Program) -> List[list]:
 
     def walk(stmts):
         for s in stmts:
-            if isinstance(s, Block):
+            if isinstance(s, FunDecl):
+                out.append(s.body.body)
+                walk(s.body.body)
+            elif isinstance(s, Block):
                 out.append(s.body)
                 walk(s.body)
             elif isinstance(s, If):
@@ -96,7 +111,7 @@ def statement_lists(program: Program) -> List[list]:
                     walk(s.orelse.body)
                 elif isinstance(s.orelse, If):
                     walk([s.orelse])
-            elif isinstance(s, While):
+            elif isinstance(s, (While, For)):
                 out.append(s.body.body)
                 walk(s.body.body)
     walk(program.body)
@@ -109,19 +124,39 @@ def expression_slots(program: Program) -> List[Tuple[object, str]]:
 
     def expr(owner, attr):
         slots.append((owner, attr))
-        e = getattr(owner, attr)
+        e = _get(owner, attr)
         if isinstance(e, Unary):
             expr(e, "operand")
         elif isinstance(e, Binary):
             expr(e, "left")
             expr(e, "right")
+        elif isinstance(e, Call):
+            for i in range(len(e.args)):
+                expr(e.args, i)
+        elif isinstance(e, Index):
+            expr(e, "index")
 
     def stmts(lst):
         for s in lst:
             if isinstance(s, VarDecl):
                 expr(s, "init")
-            elif isinstance(s, (Assign, Print)):
+            elif isinstance(s, (Assign, Print, Return)):
                 expr(s, "value")
+            elif isinstance(s, IndexAssign):
+                expr(s, "index")
+                expr(s, "value")
+            elif isinstance(s, For):
+                if s.init is not None:
+                    stmts([s.init])
+                expr(s, "cond")
+                if s.update is not None:
+                    stmts([s.update])
+                stmts(s.body.body)
+            elif isinstance(s, CallStmt):
+                for i in range(len(s.call.args)):
+                    expr(s.call.args, i)
+            elif isinstance(s, FunDecl):
+                stmts(s.body.body)
             elif isinstance(s, If):
                 _if(s)
             elif isinstance(s, While):
@@ -142,6 +177,31 @@ def expression_slots(program: Program) -> List[Tuple[object, str]]:
     return slots
 
 
+def _get(owner, attr):
+    return owner[attr] if isinstance(owner, list) else getattr(owner, attr)
+
+
+def _set(owner, attr, value) -> None:
+    if isinstance(owner, list):
+        owner[attr] = value
+    else:
+        setattr(owner, attr, value)
+
+
+def calls_in(program: Program) -> List[Call]:
+    """Every call in the program (in expressions and call statements)."""
+    out: List[Call] = []
+    for owner, attr in expression_slots(program):
+        e = _get(owner, attr)
+        if isinstance(e, Call):
+            out.append(e)
+    for lst in statement_lists(program):
+        for s in lst:
+            if isinstance(s, CallStmt):
+                out.append(s.call)
+    return out
+
+
 def _simpler(e) -> List[object]:
     """Replacements for an expression, simplest first."""
     if isinstance(e, IntLit):
@@ -152,6 +212,10 @@ def _simpler(e) -> List[object]:
         return [IntLit(0), IntLit(1), e.operand]
     if isinstance(e, Binary):
         return [IntLit(0), IntLit(1), e.left, e.right]
+    if isinstance(e, Call):
+        return [IntLit(0), IntLit(1)] + list(e.args)
+    if isinstance(e, Index):
+        return [IntLit(0), IntLit(1), e.index]
     return []
 
 
@@ -225,6 +289,10 @@ class Reducer:
                 yield (lambda: setattr(s, "orelse", None), lambda: setattr(s, "orelse", old))
         elif isinstance(s, While):
             yield splice(s.body.body)
+        elif isinstance(s, For):
+            yield splice(s.body.body)
+            if s.init is not None:
+                yield splice([s.init] + s.body.body)     # keeps the loop variable declared
         elif isinstance(s, Block):
             yield splice(s.body)
 
@@ -255,14 +323,32 @@ class Reducer:
             if index >= len(slots):
                 return changed
             owner, attr = slots[index]
-            original = getattr(owner, attr)
+            original = _get(owner, attr)
             for candidate in _simpler(original):
-                setattr(owner, attr, candidate)
+                _set(owner, attr, candidate)
                 if self.interesting():
                     changed = True
                     break
-                setattr(owner, attr, original)
+                _set(owner, attr, original)
             index += 1
+
+    # -- family 4: remove function parameters ---------------------------------
+    def drop_parameters(self) -> bool:
+        changed = False
+        for f in self.program.functions():
+            i = 0
+            while i < len(f.params):
+                calls = [c for c in calls_in(self.program) if c.name == f.name and len(c.args) == len(f.params)]
+                param = f.params.pop(i)
+                removed = [c.args.pop(i) for c in calls]
+                if self.interesting():
+                    changed = True
+                    continue
+                f.params.insert(i, param)
+                for c, a in zip(calls, removed):
+                    c.args.insert(i, a)
+                i += 1
+        return changed
 
     # -- driver ---------------------------------------------------------------
     def run(self) -> bool:
@@ -272,6 +358,7 @@ class Reducer:
                 progress = self.drop_statements()
                 progress |= self.flatten()
                 progress |= self.simplify_expressions()
+                progress |= self.drop_parameters()
                 if not progress:
                     return True
         except _OutOfBudget:

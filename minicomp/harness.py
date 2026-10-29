@@ -1,16 +1,18 @@
 """Differential testing harness.
 
-For one program, the harness runs several versions:
+For one program, the harness runs nine versions:
 
     reference      the AST interpreter (the ground truth)
     O0             unoptimized TAC on the VM
-    O1             fully optimized TAC (all passes)
-    only:<pass>    TAC optimized with a single pass
+    O1             fully optimized TAC (all passes) on the VM
+    only:<pass>    TAC optimized with a single pass, on the VM (5 runs)
+    machine        O1 code after register allocation, on the register machine
 
 If any version prints something different from the reference, or the
-compiler or VM crashes on it, the program is a failure. The single-pass
-versions narrow the blame: a pass that fails on its own is a suspect.
-(A bug that appears only when passes interact shows up in O1 alone.)
+compiler or VM crashes on it, the program is a failure. The other runs
+narrow the blame: a pass that fails on its own is a suspect, and
+"regalloc" is the suspect when only the machine run fails. (A bug that
+appears only when passes interact shows up in O1 alone.)
 
 A fuzzing campaign repeats this for many generated programs. Program i
 of a campaign with base seed S uses seed S + i, so any failure can be
@@ -28,7 +30,9 @@ from typing import Dict, List, Optional, Sequence
 
 from . import vm
 from .generator import GenConfig, generate
-from .interp import OutOfFuel, run as interpret
+from .regalloc import allocate, run_machine
+from .tac import instruction_count
+from .interp import OutOfFuel, run_counted
 from .lower import lower
 from .nodes import Program
 from .opt import ALL_PASSES, optimize
@@ -37,7 +41,24 @@ from .printer import to_source
 from .semantic import check
 
 REF_FUEL = 200_000           # reference interpreter step limit
-VM_FUEL = 2_000_000          # generous: compiled code must not hang where the reference finished
+
+# Compiled code may run at most STEP_FACTOR * (reference steps) + STEP_SLACK
+# instructions before it counts as "did not finish". Why this is safe: the
+# reference counts a step per statement, loop iteration, call, argument
+# passed, operator and array element read; every TAC instruction executed
+# is paid for by one of these, at most 4 per step (e.g. a short-circuit
+# `&&`: copy, branch, compare, copy; a global copied into a temporary
+# before a later call is paid for by the operator or argument it feeds; a
+# function's final `return 0` by its call; main's prologue entry for a
+# global by that global's declaration, which every finished run executes);
+# no optimization adds an executed instruction; and register allocation
+# adds at most 3 per TAC instruction (two loads and a store). So correct
+# code runs at most 16 * steps instructions; STEP_SLACK is extra margin.
+# A tight limit makes miscompiled infinite loops fail fast instead of
+# running to VM_FUEL.
+STEP_FACTOR = 20
+STEP_SLACK = 1_000
+VM_FUEL = STEP_FACTOR * REF_FUEL + STEP_SLACK   # the largest limit any program can get
 
 
 @dataclass
@@ -45,18 +66,25 @@ class Verdict:
     status: str                              # "ok", "mismatch", "crash", "timeout"
     outputs: Dict[str, object] = field(default_factory=dict)   # config -> list of ints or error text
     failing: List[str] = field(default_factory=list)           # configs that disagree or crashed
-    code_size: Dict[str, int] = field(default_factory=dict)    # config -> TAC instructions
+    code_size: Dict[str, int] = field(default_factory=dict)    # config -> instructions (labels not counted)
     pass_changed: Dict[str, bool] = field(default_factory=dict)  # did each pass alter the code?
 
     @property
     def suspects(self) -> List[str]:
-        return [c.split(":", 1)[1] for c in self.failing if c.startswith("only:")]
+        out = [c.split(":", 1)[1] for c in self.failing if c.startswith("only:")]
+        if MACHINE in self.failing and "O1" not in self.failing:
+            out.append("regalloc")
+        return out
+
+
+MACHINE = "machine"
 
 
 def configurations(passes: Sequence[str] = ALL_PASSES) -> Dict[str, Optional[List[str]]]:
     configs: Dict[str, Optional[List[str]]] = {"O0": None, "O1": list(passes)}
     for p in passes:
         configs[f"only:{p}"] = [p]
+    configs[MACHINE] = list(passes)          # O1, then register allocation
     return configs
 
 
@@ -69,22 +97,35 @@ def check_program(program: Program, passes: Sequence[str] = ALL_PASSES,
     """
     v = Verdict("ok")
     try:
-        ref = interpret(program, fuel=REF_FUEL)
+        ref, ref_steps = run_counted(program, fuel=REF_FUEL)
     except OutOfFuel:
         v.status = "timeout"                 # cannot judge without a reference result
         return v
     v.outputs["reference"] = ref
+    budget = min(VM_FUEL, STEP_FACTOR * ref_steps + STEP_SLACK)
 
     code0 = lower(program)
+    optimized: Dict[tuple, list] = {}
     for name, chosen in configurations(passes).items():
         if only is not None and name not in only:
             continue
         try:
-            code = code0 if chosen is None else optimize(code0, chosen)
-            v.code_size[name] = len(code)
+            key = tuple(chosen) if chosen is not None else None
+            if key is None:
+                code = code0
+            else:
+                if key not in optimized:
+                    optimized[key] = optimize(code0, chosen)
+                code = optimized[key]
             if name.startswith("only:"):
                 v.pass_changed[name[5:]] = code != code0
-            out = vm.run(code, fuel=VM_FUEL).output
+            if name == MACHINE:
+                machine = allocate(code)
+                v.code_size[name] = sum(1 for i in machine.code if i.kind not in ("label", "func"))
+                out = run_machine(machine, fuel=budget).output
+            else:
+                v.code_size[name] = instruction_count(code)
+                out = vm.run(code, fuel=budget).output
         except OutOfFuel:
             out = "error: did not finish (the reference did)"
         except Exception as e:                # a compiler or VM crash is also a bug

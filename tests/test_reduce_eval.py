@@ -20,12 +20,27 @@ TRIGGERS = {
     "copyprop-no-kill": "var a = 1; var b = 0; b = a; a = 0; print b;",
     "meet-keep-first": "var k0 = 0; while (k0 < 1) { k0 = 1; }",
     "liveness-no-backedge": "var k0 = 0; while (k0 < 1) { k0 = 1; }",
+    "call-result-undef": "fun f1() { return 1; } var k1 = 0; while (k1 < 1 && f1()) { k1 = 1; print 0; }",
+    "copyprop-meet-union": "fun f0() { } var d = f0(); var k3 = 0; while (k3 < 1) { k3 = 1; d = 1; } print d;",
+    "cse-meet-union": ("var k1 = 0; while (k1 < 1) { k1 = k1 + 1; var k3 = 0; while (k3 < 1) { k3 = 1; "
+                       "if (k1 | -2147483647) { print k1 | -2147483647; } } }"),
+    "dce-deletes-call": "fun f0() { print 0; } var g = f0();",
+    "regalloc-dead-def": "fun f0() { } var k2 = 0; while (k2 < 1) { k2 = 1; var a = f0(); }",
+    "regalloc-entry-params": "fun f1(p, q) { print p; } if (f1(1, 0)) { }",
+    "cse-load-ignores-store": "var ga[8]; ga[0] = ga[0]; ga[0] = 1; print ga[0];",
+    "call-keeps-globals": "fun f0() { g0 = 0; } var g0 = 1; var g1 = 0; g1 = f0(); print g0;",
+    "copyprop-call-keeps-globals": "var g = 1; fun f() { g = 2; return 0; } fun h(p) { var x = g; f(); print x; return 0; } h(0);",
+    "liveness-return-ignores-globals": "var g = 1; fun f() { g = 2; return 0; } f(); print g;",
 }
 
 
 def optimizer_state():
+    from minicomp import regalloc
     return (opt.fold_binary, opt.fold_unary, opt._identity, opt._meet, opt.liveness,
-            dict(opt.PASS_FUNCS), frozenset(opt.COMMUTATIVE), Instr.uses)
+            opt._uses, opt._transfer_const, opt._copy_transfer, opt._copy_join, opt._cse_transfer, opt._cse_join,
+            opt._call_clobbers, opt._copy_call_kill, opt._cse_store_kills, opt._ret_reads_globals,
+            dict(opt.PASS_FUNCS), frozenset(opt.COMMUTATIVE), Instr.uses, Instr.has_effect,
+            regalloc._def_edges, regalloc._param_edges, regalloc.scratch_for)
 
 
 # ---------------------------------------------------------------- planted bugs
@@ -65,32 +80,35 @@ def test_bugs_never_change_the_reference_interpreter():
 
 
 # ---------------------------------------------------------------- generator option
-def test_swap_option_off_by_default_and_valid_when_on():
-    assert generate_source(3).startswith("var b = 60;\nprint (b != b)")   # seed 3 unchanged
-    cfg = GenConfig(swap_reuse=0.5)
-    changed = 0
-    for s in range(80):
-        src = generate_source(s, cfg)
-        p = parse(src)
-        check(p)
-        run(p, fuel=200_000)
-        changed += src != generate_source(s)
-    assert changed > 0
+def test_generator_settings_are_valid():
+    from minicomp.evaluate import SETTINGS
+    no_swap, no_fun = SETTINGS["no-swap"], SETTINGS["no-functions"]
+    differs = 0
+    for s in range(40):
+        for cfg in SETTINGS.values():
+            src = generate_source(s, cfg)
+            p = parse(src)
+            check(p)
+            run(p, fuel=200_000)
+        assert "fun " not in generate_source(s, no_fun)
+        differs += generate_source(s, no_swap) != generate_source(s)
+    assert differs > 0                                    # swapping is on by default
 
 
 # ---------------------------------------------------------------- reducer
 def test_reducer_shrinks_a_real_failure_and_keeps_the_bug():
     with planted("copyprop-no-kill"):
-        res = reduce_program(generate(110))
-    assert res.before["lines"] == 62 and res.after["lines"] == 5 and res.complete
-    assert res.source == "var a = 1;\nvar b = 0;\nb = a;\na = 0;\nprint b;\n"
+        res = reduce_program(generate(7))
+    assert res.before["lines"] == 37 and res.after["lines"] == 12 and res.complete
+    assert res.source == ("var g0 = 0;\nvar f = 0;\ng0 = f;\nf = 1;\nvar k2 = 0;\nwhile (k2 < 1) {\n"
+                          "    k2 = 1;\n    if (g0) {\n        continue;\n    }\n    print 0;\n}\n")
     assert res.verdict.status == "mismatch" and res.verdict.suspects == ["copyprop"]
     check(parse(res.source))                                   # still a valid program
 
 
 def test_reducer_result_is_minimal_for_its_statements():
-    with planted("fold-div-floor"):
-        res = reduce_program(generate(48))
+    with planted("cse-no-kill"):
+        res = reduce_program(generate(9))
         assert res.after["statements"] < res.before["statements"]
         # removing any single top-level statement makes the failure disappear
         for i in range(len(res.program.body)):
@@ -114,11 +132,13 @@ def test_small_evaluation():
     report = evaluate(n=40, seed=0, bugs=["fold-unsigned-compare", "div-self-one"])
     assert all(base["failures"] == 0 for base in report.baseline.values())   # no false alarms
     by = {b.name: b for b in report.bugs}
-    assert by["fold-unsigned-compare"].by_setting["default"].programs == 5
-    assert by["div-self-one"].by_setting["default"].programs == 17
+    assert by["fold-unsigned-compare"].by_setting["default"].programs == 26
+    assert by["fold-unsigned-compare"].by_setting["no-functions"].programs == 7
+    assert by["div-self-one"].by_setting["default"].programs == 23
+    assert by["div-self-one"].by_setting["no-loop-control"].programs == 1
     for b in report.bugs:
         assert b.blamed is True
         assert b.reduced_to is not None and b.reduced_to < b.reduced_from
     text = report.markdown()
-    assert "| `div-self-one` | constprop | program 17 |" in text
+    assert "| `div-self-one` | constprop | program 23 |" in text
     assert "false alarms on the correct compiler (default): 0/40 programs" in text

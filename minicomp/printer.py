@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from typing import List
 
-from .nodes import (Assign, Binary, Block, If, IntLit, Print, Program, Unary,
-                    Var, VarDecl, While)
+from .nodes import (ArrayDecl, Assign, Binary, Block, Break, Call, CallStmt, Continue, For,
+                    FunDecl, If, Index, IndexAssign, IntLit, Print, Program, Return, Unary, Var,
+                    VarDecl, While)
 from .parser import PRECEDENCE
 
 INDENT = "    "
@@ -30,10 +31,38 @@ def expr_source(e) -> str:
 
 def _stmt(s, depth: int, out: List[str]) -> None:
     pad = INDENT * depth
-    if isinstance(s, VarDecl):
+    if isinstance(s, FunDecl):
+        out.append(f"{pad}fun {s.name}({', '.join(s.params)}) {{")
+        for inner in s.body.body:
+            _stmt(inner, depth + 1, out)
+        out.append(f"{pad}}}")
+    elif isinstance(s, Return):
+        out.append(f"{pad}return {_expr(s.value)};")
+    elif isinstance(s, CallStmt):
+        out.append(f"{pad}{_expr(s.call)};")
+    elif isinstance(s, VarDecl):
         out.append(f"{pad}var {s.name} = {_expr(s.init)};")
+    elif isinstance(s, ArrayDecl):
+        out.append(f"{pad}var {s.name}[{s.size}];")
     elif isinstance(s, Assign):
         out.append(f"{pad}{s.name} = {_expr(s.value)};")
+    elif isinstance(s, IndexAssign):
+        out.append(f"{pad}{s.name}[{_expr(s.index)}] = {_expr(s.value)};")
+    elif isinstance(s, Break):
+        out.append(f"{pad}break;")
+    elif isinstance(s, Continue):
+        out.append(f"{pad}continue;")
+    elif isinstance(s, For):
+        init = ""
+        if isinstance(s.init, VarDecl):
+            init = f"var {s.init.name} = {_expr(s.init.init)}"
+        elif isinstance(s.init, Assign):
+            init = f"{s.init.name} = {_expr(s.init.value)}"
+        update = f"{s.update.name} = {_expr(s.update.value)}" if s.update is not None else ""
+        out.append(f"{pad}for ({init}; {_expr(s.cond)}; {update}) {{")
+        for inner in s.body.body:
+            _stmt(inner, depth + 1, out)
+        out.append(f"{pad}}}")
     elif isinstance(s, Print):
         out.append(f"{pad}print {_expr(s.value)};")
     elif isinstance(s, Block):
@@ -73,9 +102,13 @@ def _expr(e) -> str:
         return str(e.value)
     if isinstance(e, Var):
         return e.name
+    if isinstance(e, Call):
+        return f"{e.name}({', '.join(_expr(a) for a in e.args)})"
+    if isinstance(e, Index):
+        return f"{e.name}[{_expr(e.index)}]"
     if isinstance(e, Unary):
         inner = _expr(e.operand)
-        if not isinstance(e.operand, (IntLit, Var, Unary)):
+        if not isinstance(e.operand, (IntLit, Var, Unary, Call, Index)):
             inner = f"({inner})"
         return f"{e.op}{inner}"
     if isinstance(e, Binary):

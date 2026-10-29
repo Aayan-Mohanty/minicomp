@@ -1,6 +1,0 @@
-// Semantic errors: all are reported, not just the first
-var a = b + 1;
-var a = 2;
-{
-    c = 3;
-}

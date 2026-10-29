@@ -11,7 +11,7 @@ API (version 1, all JSON unless noted):
     GET  /api/v1/meta                        version, passes, limits, language rules
     GET  /api/v1/examples                    the programs in examples/
     POST /api/v1/compile    {"code"}         every stage with timings, optimizer trace,
-                                             CFGs and the 8-way differential verdict
+                                             CFGs, machine code and the 9-way verdict
     POST /api/v1/generate   {"seed"}         the random program for a seed
     GET  /api/v1/fuzz/stream?n=N&seed=S      Server-Sent Events: one `program` event per
                                              generated program, then `done` (N <= 500)
@@ -40,7 +40,7 @@ from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from minicomp import interp, vm
-from minicomp.cfg import EXIT, build_cfg, connect, linearize
+from minicomp.cfg import EXIT, build_cfg, connect, linearize, unit_cfgs
 from minicomp.errors import CompileError
 from minicomp.generator import generate, generate_source
 from minicomp.harness import check_program
@@ -48,10 +48,12 @@ from minicomp.lexer import tokenize
 from minicomp.lower import lower
 from minicomp.opt import ALL_PASSES, MAX_ROUNDS, PASS_FUNCS
 from minicomp.parser import parse
+from minicomp.regalloc import K, allocate, run_machine
+from minicomp.tac import Unit, instruction_count, join_units, split_units
 from minicomp.printer import to_source
 from minicomp.semantic import SemanticErrors, check
 
-VERSION = "1.0.0"
+VERSION = "2.1.0"
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 EXAMPLES = ROOT.parent / "examples"
@@ -132,33 +134,67 @@ def count_nodes(node) -> int:
 
 
 def cfg_json(code):
-    return [{"id": b.id, "labels": b.labels, "instrs": [str(i) for i in b.instrs],
-             "succ": ["EXIT" if s == EXIT else s for s in b.succ], "pred": b.pred}
-            for b in build_cfg(code).blocks]
+    """One graph per unit (main first)."""
+    out = []
+    for unit, graph in unit_cfgs(code):
+        out.append({"unit": unit.name, "params": list(unit.params),
+                    "blocks": [{"id": b.id, "labels": b.labels, "instrs": [str(i) for i in b.instrs],
+                                "succ": ["EXIT" if x == EXIT else x for x in b.succ], "pred": b.pred}
+                               for b in graph.blocks]})
+    return out
 
 
 def traced_optimize(code0):
-    """Exactly what opt.optimize does, recording the code after every pass."""
-    trace = [{"round": 0, "pass": "input", "size": len(code0), "changed": False,
+    """Exactly what opt.optimize does, recording the whole program after every pass.
+
+    Each unit runs its own rounds until its code stops changing (as in
+    opt.optimize_unit); a step is recorded when a pass changed any unit.
+    """
+    units = split_units(code0)
+    bodies = [u.body for u in units]
+    done = [False] * len(units)
+    trace = [{"round": 0, "pass": "input", "size": instruction_count(code0), "changed": False,
               "code": [str(i) for i in code0]}]
-    code = code0
+
+    def whole(current):
+        return join_units([Unit(u.header, b) for u, b in zip(units, current)])
+
+    rounds = 0
     for rnd in range(1, MAX_ROUNDS + 1):
-        cfg = build_cfg(code)
-        prev = linearize(cfg)
+        if all(done):
+            break
+        rounds = rnd
+        cfgs = {}
+        snaps = list(bodies)
+        for i, u in enumerate(units):
+            if not done[i]:
+                cfgs[i] = build_cfg(bodies[i])
+                cfgs[i].params = u.params
+                cfgs[i].is_function = u.header is not None
+                snaps[i] = linearize(cfgs[i])
         for name in ALL_PASSES:
-            PASS_FUNCS[name](cfg)
-            connect(cfg.blocks)
-            snap = linearize(cfg)
-            changed = snap != prev
+            changed = False
+            for i, g in cfgs.items():
+                PASS_FUNCS[name](g)
+                connect(g.blocks)
+                snap = linearize(g)
+                changed |= snap != snaps[i]
+                snaps[i] = snap
             if changed and len(trace) < LIMITS["trace_steps_max"]:
-                trace.append({"round": rnd, "pass": name, "size": len(snap), "changed": True,
-                              "code": [str(i) for i in snap]})
-            prev = snap
-        new_code = linearize(cfg)
-        if new_code == code:
-            return code, trace, rnd
-        code = new_code
-    return code, trace, MAX_ROUNDS
+                code = whole(snaps)
+                trace.append({"round": rnd, "pass": name, "size": instruction_count(code), "changed": True,
+                              "code": [str(x) for x in code]})
+        for i in cfgs:
+            if snaps[i] == bodies[i]:
+                done[i] = True
+            bodies[i] = snaps[i]
+    return whole(bodies), trace, max(rounds, 1)
+
+
+def machine_json(machine, steps):
+    return {"registers": K, "code": [str(i) for i in machine.code], "steps": steps,
+            "units": [{"unit": u.name, "variables": len(u.locations), "registers_used": u.registers_used,
+                       "spilled": u.spilled, "locations": u.locations} for u in machine.units]}
 
 
 def compile_all(source: str) -> dict:
@@ -196,7 +232,7 @@ def compile_all(source: str) -> dict:
     t0 = time.perf_counter(); code0 = lower(program); t["tac"] = _ms(t0)
     t0 = time.perf_counter(); cfg0 = cfg_json(code0); t["cfg"] = _ms(t0)
     t0 = time.perf_counter(); code1, trace, rounds = traced_optimize(code0); t["opt"] = _ms(t0)
-    steps = {"O0": None, "O1": None}
+    steps = {"O0": None, "O1": None, "machine": None}
     t0 = time.perf_counter()
     if finished:
         for name, code in (("O0", code0), ("O1", code1)):
@@ -205,20 +241,33 @@ def compile_all(source: str) -> dict:
             except Exception:
                 steps[name] = None
     t["vm"] = _ms(t0)
+    t0 = time.perf_counter()
+    machine = allocate(code1)
+    if finished:
+        try:
+            steps["machine"] = run_machine(machine, fuel=2_000_000).steps
+        except Exception:
+            steps["machine"] = None
+    t["regs"] = _ms(t0)
     t0 = time.perf_counter(); verdict = check_program(program); t["diff"] = _ms(t0)
 
     return {
         "ok": True,
         "timings_ms": t,
         "counts": {"tokens": len(tokens) - 1, "ast_nodes": count_nodes(program),
-                   "symbols": len(table.all_symbols), "tac_O0": len(code0), "tac_O1": len(code1),
-                   "blocks_O0": len(cfg0), "opt_rounds": rounds},
+                   "symbols": len(table.all_symbols), "tac_O0": instruction_count(code0),
+                   "tac_O1": instruction_count(code1),
+                   "blocks_O0": sum(len(u["blocks"]) for u in cfg0), "opt_rounds": rounds,
+                   "functions": len(program.functions()),
+                   "spilled": sum(len(u.spilled) for u in machine.units)},
         "tokens": tok_json,
         "ast": ast_json(program),
-        "symbols": [{"name": s.name, "line": s.line, "col": s.col, "depth": s.depth}
+        "symbols": [{"name": s.name, "line": s.line, "col": s.col, "depth": s.depth,
+                     "kind": f"array[{s.size}]" if s.kind == "array" else s.kind, "owner": s.owner}
                     for s in table.all_symbols],
         "tac": {"O0": [str(i) for i in code0], "O1": [str(i) for i in code1]},
         "cfg": {"O0": cfg0, "O1": cfg_json(code1)},
+        "machine": machine_json(machine, steps["machine"]),
         "trace": trace,
         "steps": steps,
         "verdict": {"status": verdict.status, "outputs": verdict.outputs, "failing": verdict.failing,
@@ -290,9 +339,12 @@ def _health(h, q):
 
 @route("GET", "/api/v1/meta", cost=0)
 def _meta(h, q):
-    return {"version": VERSION, "passes": ALL_PASSES, "limits": LIMITS,
+    return {"version": VERSION, "passes": ALL_PASSES, "registers": K, "limits": LIMITS,
             "rules": ["32-bit integers wrap around", "x / 0 == 0", "x % 0 == x",
-                      "shift amounts use the low 5 bits", "comparisons give 1 or 0"]}
+                      "shift amounts use the low 5 bits", "comparisons give 1 or 0",
+                      "a[i] is element i mod n (in 0..n-1); new arrays hold 0",
+                      "functions see their parameters, locals and top-level variables; "
+                      "a missing return gives 0"]}
 
 
 @route("GET", "/api/v1/examples")

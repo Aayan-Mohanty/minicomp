@@ -1,14 +1,18 @@
 """Basic blocks and the control-flow graph (CFG) of a TAC program.
 
+A CFG is built for ONE unit: main, or the body of one function
+(`unit_cfgs` builds one per unit of a whole program).
+
 Leaders (first instruction of a basic block):
   1. the first instruction
   2. every label (a jump may land there)
-  3. every instruction that follows a jump or conditional branch
+  3. every instruction that follows a jump, conditional branch or return
 
 A block runs straight through: control enters only at its start and
 leaves only at its end. Edges:
   goto L              -> the block labelled L
   if a goto L1 else L2 -> both blocks
+  return a            -> EXIT
   anything else        -> falls through to the next block in program order
                           (or to EXIT after the last block)
 
@@ -21,9 +25,11 @@ reachable one).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-from .tac import Instr
+from .tac import Instr, Unit, split_units
+
+TERMINATORS = ("jump", "cbr", "ret")
 
 EXIT = -1
 
@@ -40,6 +46,8 @@ class BasicBlock:
 @dataclass
 class CFG:
     blocks: List[BasicBlock]            # in program order; blocks[0] is the entry
+    params: Tuple[str, ...] = ()        # a function's parameters (defined on entry)
+    is_function: bool = False           # a function (its caller may read globals after it returns)
 
     def by_id(self) -> Dict[int, BasicBlock]:
         return {b.id: b for b in self.blocks}
@@ -60,6 +68,8 @@ def build_cfg(code: List[Instr]) -> CFG:
     blocks: List[BasicBlock] = []
     current: BasicBlock = None
     for ins in code:
+        if ins.kind == "func":
+            raise ValueError("build_cfg takes one unit; use unit_cfgs for a whole program")
         if ins.kind == "label":
             # a label starts a new block unless the current block is still empty
             if current is None or current.instrs:
@@ -71,7 +81,7 @@ def build_cfg(code: List[Instr]) -> CFG:
             current = BasicBlock(len(blocks))
             blocks.append(current)
         current.instrs.append(ins)
-        if ins.kind in ("jump", "cbr"):
+        if ins.kind in TERMINATORS:
             current = None                      # the next instruction is a leader
     connect(blocks)
     return CFG(blocks)
@@ -89,6 +99,8 @@ def connect(blocks: List[BasicBlock]) -> None:
             targets = [where[last.target]]
         elif last is not None and last.kind == "cbr":
             targets = [where[last.target], where[last.target2]]
+        elif last is not None and last.kind == "ret":
+            targets = [EXIT]
         else:
             targets = [ids[i + 1] if i + 1 < len(blocks) else EXIT]
         for t in targets:
@@ -99,6 +111,11 @@ def connect(blocks: List[BasicBlock]) -> None:
         for s in b.succ:
             if s != EXIT and b.id not in by_id[s].pred:
                 by_id[s].pred.append(b.id)
+
+
+def unit_cfgs(code: List[Instr]) -> List[Tuple[Unit, CFG]]:
+    """One CFG per unit of a whole program (main first)."""
+    return [(u, build_cfg(u.body)) for u in split_units(code)]
 
 
 def reachable(cfg: CFG) -> set:

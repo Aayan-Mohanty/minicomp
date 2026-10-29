@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from minicomp import vm
+from minicomp.tac import Unit, join_units, split_units
 from minicomp.cfg import EXIT, build_cfg, linearize
 from minicomp.interp import run
 from minicomp.lower import lower
@@ -14,7 +15,7 @@ from minicomp.semantic import check
 from minicomp.tac import binop, copy, format_code
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
-RUNNABLE = ["fib.mini", "gcd.mini", "semantics.mini", "scopes.mini"]
+RUNNABLE = ["fib.mini", "gcd.mini", "semantics.mini", "scopes.mini", "functions.mini", "arrays.mini"]
 
 
 def compile_src(src, passes=None):
@@ -66,7 +67,9 @@ def test_cfg_blocks_and_edges():
 def test_linearize_round_trip_preserves_behaviour():
     for name in RUNNABLE:
         code = compile_src((EXAMPLES / name).read_text())
-        assert vm.run(linearize(build_cfg(code))).output == vm.run(code).output
+        units = split_units(code)                        # one CFG per function (and main)
+        rebuilt = join_units([Unit(u.header, linearize(build_cfg(u.body))) for u in units])
+        assert vm.run(rebuilt).output == vm.run(code).output, name
 
 
 # ---------------------------------------------------------------- folding rules

@@ -133,6 +133,8 @@ def test_examples_produce_expected_output():
         "gcd.mini": [21],
         "semantics.mini": [-2147483648, -3, -1, 0, 5, 2, -4, 1],
         "scopes.mini": [11, 22, 1, 5],
+        "functions.mini": [1594323, 610, -2147483648],
+        "arrays.mini": [29, 29, 832040, 59],
     }
     for name, want in expected.items():
         assert output((EXAMPLES / name).read_text()) == want, name
