@@ -36,6 +36,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .led { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .led.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .led.off { background: var(--bug); }
+.bugsel select { max-width: 260px; }
+body.bugged .top { border-bottom-color: var(--bug); }
+body.bugged .bugsel select { border-color: var(--bug); color: var(--bug); }
+.bugbar { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 7px 16px; background: var(--bug-wash); border-bottom: 1px solid var(--bug); font-size: 12.5px; }
+.bugbar[hidden] { display: none; }
+.bugbar b { color: var(--bug); }
+.bugbar .dimc { font-size: 12px; }
 
 /* ---------- pipeline ---------- */
 .pipe { display: flex; gap: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--bg); }
@@ -179,9 +186,12 @@ svg.cfg text { font-family: var(--mono); }
   <span class="pill"><span class="refc">━</span> reference</span>
   <span class="pill"><span class="cmpc">━</span> compiled</span>
   <span class="grow"></span>
+  <label class="pill bugsel" title="Switch on one deliberately broken compiler rule for compile, fuzz and reduce">planted bug
+    <select id="bug" aria-label="Planted bug"><option value="">none (correct compiler)</option></select></label>
   <span class="pill" id="api"><span class="led" id="led"></span><span id="apitxt">api: connecting</span></span>
 </div>
 
+<div class="bugbar" id="bugbar" role="status" hidden></div>
 <div class="pipe" id="pipe" aria-label="Compiler pipeline"></div>
 
 <div class="work">
@@ -223,6 +233,7 @@ svg.cfg text { font-family: var(--mono); }
         <label class="lbl">start seed <input id="fz-seed" type="number" min="0" max="1000000000" value="0"></label>
         <button class="btn go" id="fz-go" type="button">stream ▸</button>
         <button class="btn" id="fz-stop" type="button" disabled>stop</button>
+        <label class="lbl"><input id="fz-first" type="checkbox"> stop at first bug</label>
       </div>
       <div id="fz-kpis" class="kpis" style="margin-top:0"></div>
       <div id="fz-grid" class="grid" aria-label="One square per program"></div>
@@ -244,6 +255,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const API = "/api/v1";
 const codeEl = $("#code"), gutter = $("#gutter");
 let errLines = new Set(), last = null, examples = [], cfgLevel = "O1", cfgUnit = "main", traceIdx = 0, stream = null;
+let bugs = [], reduced = null;   // reduced = {from, to, info}: the last reduction, for "restore original"
 
 /* ---------- console log ---------- */
 function log(msg, cls = "") {
@@ -275,6 +287,26 @@ async function health() {
 const fmtUp = (s) => s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
 health(); setInterval(health, 30000);
 
+/* ---------- planted bugs ---------- */
+const bugName = () => $("#bug").value || null;
+api("/meta").then((m) => {
+  bugs = m.bugs || [];
+  const sel = $("#bug"), homes = [...new Set(bugs.map((b) => b.home))];
+  homes.forEach((h) => sel.insertAdjacentHTML("beforeend", `<optgroup label="${esc(h)}">${bugs.filter((b) => b.home === h).map((b) => `<option value="${esc(b.name)}">${esc(b.name)}</option>`).join("")}</optgroup>`));
+  sel.value = "";
+}).catch(() => {});
+function showBug() {
+  const b = bugs.find((x) => x.name === bugName());
+  document.body.classList.toggle("bugged", !!b);
+  $("#bugbar").hidden = !b;
+  $("#bugbar").innerHTML = b ? `<span><b>planted bug: ${esc(b.name)}</b> in ${esc(b.home)}: ${esc(b.summary)}</span><span class="dimc">The compiler is deliberately broken for compile, fuzz and reduce until you choose "none". The reference interpreter is never changed. Other visitors are not affected.</span>` : "";
+}
+$("#bug").addEventListener("change", () => {
+  showBug();
+  log(bugName() ? `planted bug <span class="bugc">${esc(bugName())}</span> switched on` : "planted bug switched off: correct compiler");
+  if (codeEl.value.trim()) compile();
+});
+
 /* ---------- pipeline ---------- */
 const STAGES = [
   ["lex", "lex", ""], ["parse", "parse", ""], ["sema", "sema", ""], ["ref", "ref", "ref"],
@@ -299,7 +331,7 @@ function cursorPos() {
   const before = codeEl.value.slice(0, codeEl.selectionStart).split("\n");
   $("#cursor").textContent = `ln ${before.length}, col ${before.at(-1).length + 1}`;
 }
-codeEl.addEventListener("input", () => { errLines.clear(); renderGutter(); cursorPos(); });
+codeEl.addEventListener("input", () => { errLines.clear(); $("#example").value = ""; renderGutter(); cursorPos(); });
 codeEl.addEventListener("scroll", () => { gutter.scrollTop = codeEl.scrollTop; });
 ["keyup", "click"].forEach((ev) => codeEl.addEventListener(ev, cursorPos));
 codeEl.addEventListener("keydown", (e) => {
@@ -350,7 +382,7 @@ $("#gen").addEventListener("click", () => loadSeed(Math.max(0, parseInt($("#seed
 async function compile() {
   const btn = $("#run"); btn.disabled = true;
   drawPipe(Object.fromEntries(STAGES.map(([k]) => [k, { cls: "run" }])));
-  try { render(await api("/compile", { code: codeEl.value })); }
+  try { render(await api("/compile", { code: codeEl.value, bug: bugName() })); }
   catch { drawPipe(); log("compile: server unreachable", "bugc"); }
   finally { btn.disabled = false; }
 }
@@ -394,7 +426,8 @@ function render(res) {
   renderDiff(); $("#p-front").innerHTML = frontHtml(res); renderTac(); renderTrace(); renderCfg();
   const total = Object.values(t).reduce((a, b) => a + b, 0);
   const cls = v.status === "ok" ? "okc" : timeout ? "dimc" : "bugc";
-  log(`compile <span class="${cls}">${timeout ? "timeout" : v.status === "ok" ? `${runs}/${runs} agree` : v.status.toUpperCase() + " suspects=" + (v.suspects.join(",") || "interaction")}</span>  ${c.tac_O0}→${c.tac_O1} instr  ${total.toFixed(1)}ms server / ${res._rt}ms total <span class="dimc">req ${res._rid}</span>`);
+  const bugTxt = res.bug ? ` <span class="bugc">[bug ${esc(res.bug)}]</span>` : "";
+  log(`compile${bugTxt} <span class="${cls}">${timeout ? "timeout" : v.status === "ok" ? `${runs}/${runs} agree` : v.status.toUpperCase() + " suspects=" + (v.suspects.join(",") || "interaction")}</span>  ${c.tac_O0}→${c.tac_O1} instr  ${total.toFixed(1)}ms server / ${res._rt}ms total <span class="dimc">req ${res._rid}</span>`);
 }
 
 function valsHtml(out, ref) {
@@ -407,17 +440,37 @@ function renderDiff() {
   const v = last.verdict, ref = v.outputs.reference, runs = Object.keys(v.outputs).length;
   const head = v.status === "ok" ? `<div class="verdict ok"><span class="big">${runs}/${runs} agree</span><span class="dimc">reference and every compiled version printed the same values</span></div>`
     : v.status === "timeout" ? `<div class="verdict neutral"><span class="big">no verdict</span><span class="dimc">the reference interpreter hit its step limit</span></div>`
-    : `<div class="verdict bad"><span class="big">${esc(v.status)}</span><span class="dimc">suspects: ${esc(v.suspects.join(", ") || "only with all passes together")}</span></div>`;
+    : `<div class="verdict bad"><span class="big">${esc(v.status)}</span><span class="dimc">suspects: ${esc(v.suspects.join(", ") || "only with all passes together")}</span><button class="btn go" id="reduce-btn" type="button" title="Shrink this program to a minimal one that still fails the same way">reduce ▸</button></div>`;
+  const note = reduced && codeEl.value === reduced.to
+    ? `<p class="dimc" style="margin-top:-6px">Reduced from ${reduced.info.before.lines} to ${reduced.info.after.lines} lines (${reduced.info.tests} candidate programs tested in ${reduced.info.seconds} s${reduced.info.complete ? "" : "; stopped at the time budget"}). <button class="link" id="restore-btn" type="button">restore original</button></p>` : "";
   if (v.status === "timeout") { $("#p-diff").innerHTML = head; return; }
   const rows = Object.keys(RUNS).filter((k) => k in v.outputs).map((k) => {
     const [kind, label] = RUNS[k];
     return `<tr class="${v.failing.includes(k) ? "bad" : ""}"><td><span class="bar ${kind}"></span>${label}</td><td class="n">${k === "reference" ? "" : v.sizes[k]}</td><td class="vals">${valsHtml(v.outputs[k], k === "reference" ? null : ref)}</td></tr>`;
   }).join("");
   const s0 = v.sizes.O0, s1 = v.sizes.O1, e0 = last.steps.O0, e1 = last.steps.O1, pct = (a, b) => a ? Math.round(100 * (1 - b / a)) : 0;
-  $("#p-diff").innerHTML = head + `<table class="runs"><thead><tr><th>run</th><th class="n">instr</th><th>printed values</th></tr></thead><tbody>${rows}</tbody></table>
+  $("#p-diff").innerHTML = head + note + `<table class="runs"><thead><tr><th>run</th><th class="n">instr</th><th>printed values</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="kpis"><div class="kpi"><b>${s0} → ${s1}</b><span>static instructions · −${pct(s0, s1)}%</span></div>
     ${e0 != null ? `<div class="kpi"><b>${e0.toLocaleString()} → ${e1.toLocaleString()}</b><span>executed instructions · −${pct(e0, e1)}%</span></div>` : ""}
     <div class="kpi"><b>${last.counts.opt_rounds}</b><span>optimizer rounds to fixed point</span></div></div>`;
+  $("#reduce-btn")?.addEventListener("click", reduceNow);
+  $("#restore-btn")?.addEventListener("click", () => { const from = reduced.from; reduced = null; setCode(from); log("restored the original program"); compile(); });
+}
+
+/* ---------- reduce ---------- */
+async function reduceNow() {
+  const btn = $("#reduce-btn"), from = codeEl.value;
+  btn.disabled = true; btn.textContent = "reducing…";
+  log(`reduce started${bugName() ? ` <span class="bugc">[bug ${esc(bugName())}]</span>` : ""}`, "dimc");
+  try {
+    const r = await api("/reduce", { code: from, bug: bugName() });
+    if (!r.ok) { log(`reduce: ${esc(r.error)}`, "bugc"); btn.disabled = false; btn.textContent = "reduce ▸"; return; }
+    if (!r.reduced) { log(`reduce: ${esc(r.message)}`, "dimc"); btn.disabled = false; btn.textContent = "reduce ▸"; return; }
+    reduced = { from: reduced && from === reduced.to ? reduced.from : from, to: r.source, info: r };
+    $("#example").value = ""; setCode(r.source);
+    log(`reduce <span class="okc">${r.before.lines} → ${r.after.lines} lines</span>  ${r.before.statements} → ${r.after.statements} statements  ${r.tests} candidates  ${r.seconds}s${r.complete ? "" : " (time budget reached)"}  still ${esc(r.status)} · suspects ${esc(r.suspects.join(",") || "interaction")} <span class="dimc">req ${r._rid}</span>`);
+    compile();
+  } catch { log("reduce: server unreachable", "bugc"); btn.disabled = false; btn.textContent = "reduce ▸"; }
 }
 
 function frontHtml(res) {
@@ -577,10 +630,15 @@ $("#fz-grid").addEventListener("click", (e) => { const c = e.target.closest(".ce
 $("#fz-go").addEventListener("click", () => {
   const n = Math.min(500, Math.max(1, parseInt($("#fz-n").value || "200", 10))), seed = Math.max(0, parseInt($("#fz-seed").value || "0", 10));
   fzReset(n, seed); $("#fz-go").disabled = true; $("#fz-stop").disabled = false;
-  log(`fuzz stream n=${n} seed=${seed}`);
+  const bug = bugName(), first = $("#fz-first").checked;
+  log(`fuzz stream n=${n} seed=${seed}${bug ? ` <span class="bugc">[bug ${esc(bug)}]</span>` : ""}${first ? " · stop at first bug" : ""}`);
   let got = false;
-  stream = new EventSource(`${API}/fuzz/stream?n=${n}&seed=${seed}`);
-  stream.addEventListener("program", (e) => { got = true; fzOne(JSON.parse(e.data)); });
+  stream = new EventSource(`${API}/fuzz/stream?n=${n}&seed=${seed}${bug ? `&bug=${encodeURIComponent(bug)}` : ""}`);
+  stream.addEventListener("program", (e) => {
+    got = true; const r = JSON.parse(e.data); fzOne(r);
+    if (first && (r.status === "mismatch" || r.status === "crash") && stream) { stream.close(); stream = null; log(`fuzz stopped at the first bug: seed ${r.seed}, program ${fz.done} of ${fz.n}`); fzFinish(); }
+  });
+  stream.addEventListener("failed", (e) => { if (stream) { stream.close(); stream = null; } log(`fuzz: ${esc(JSON.parse(e.data).error)}`, "bugc"); fzFinish(); });
   stream.addEventListener("done", (e) => { stream.close(); stream = null; fzFinish(JSON.parse(e.data)); });
   stream.onerror = async () => {
     if (!stream) return;
@@ -589,7 +647,12 @@ $("#fz-go").addEventListener("click", () => {
     const m = Math.min(n, 100);                       // streaming unavailable: one batch request
     log(`streaming unavailable; running ${m} programs as one request`, "dimc");
     fzReset(m, seed);
-    try { const r = await api("/fuzz", { n: m, seed }); if (!r.ok) { log(`fuzz: ${esc(r.error)}`, "bugc"); fzFinish(); return; } r.results.forEach(fzOne); fzFinish(r); }
+    try {
+      const r = await api("/fuzz", { n: m, seed, bug });
+      if (!r.ok) { log(`fuzz: ${esc(r.error)}`, "bugc"); fzFinish(); return; }
+      const stopAt = first ? r.results.findIndex((x) => x.status === "mismatch" || x.status === "crash") : -1;
+      (stopAt >= 0 ? r.results.slice(0, stopAt + 1) : r.results).forEach(fzOne); fzFinish(r);
+    }
     catch { log("fuzz: server unreachable", "bugc"); fzFinish(); }
   };
 });

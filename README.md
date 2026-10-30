@@ -76,6 +76,11 @@ An IDE-style console. Cyan marks the reference path, amber the compiled path.
 - **Pipeline bar**: every stage (lex, parse, sema, ref, tac, cfg, opt, vm, regs, diff)
   with its time in milliseconds and a count (tokens, nodes, instructions, spills, agreement).
 - **diff**: the 9 runs side by side; values that differ from the reference are underlined in red.
+  When a run fails, **reduce** shrinks the program to a minimal one that still fails the same way
+  (**restore original** brings the full program back).
+- **planted bug** (top right): switches on one of the 22 planted bugs for compile, fuzz and
+  reduce, so the page can show a real mismatch or crash. A red banner names the bug while it
+  is on. Choose "none" for the correct compiler (the default).
 - **front end**: tokens by kind, the syntax tree, the symbol table (variables, arrays with their sizes, parameters, functions).
 - **tac**: three-address code at -O0 and -O1, and the machine code after register
   allocation with each function's variables, registers used and spills.
@@ -84,6 +89,7 @@ An IDE-style console. Cyan marks the reference path, amber the compiled path.
 - **cfg**: the control-flow graph of each function at -O0 or -O1.
 - **fuzz**: a live campaign of up to 500 programs streamed from the server; each
   square is one program (green agree, red bug, grey did not finish); click one to open it.
+  "stop at first bug" ends the campaign at the first failing program.
 - **console**: a timestamped log of every request with its server time and request id.
 
 Shortcuts: Ctrl/Cmd+Enter compile, Alt+R random program, Alt+1..6 views.
@@ -93,12 +99,19 @@ Shortcuts: Ctrl/Cmd+Enter compile, Alt+R random program, Alt+1..6 views.
 | Method and path | Purpose |
 |---|---|
 | `GET /api/v1/health` | Liveness, version, uptime |
-| `GET /api/v1/meta` | Passes, registers, limits, language rules |
+| `GET /api/v1/meta` | Passes, registers, limits, language rules, the planted bugs |
 | `GET /api/v1/examples` | The programs in `examples/` |
-| `POST /api/v1/compile` `{"code"}` | Every stage with timings, optimizer trace, CFGs per function, machine code, 9-way verdict |
+| `POST /api/v1/compile` `{"code", "bug"?}` | Every stage with timings, optimizer trace, CFGs per function, machine code, 9-way verdict |
 | `POST /api/v1/generate` `{"seed"}` | The random program for a seed |
-| `GET /api/v1/fuzz/stream?n=&seed=` | Server-Sent Events: one `program` event per program, then `done` (n <= 500) |
-| `POST /api/v1/fuzz` `{"n","seed"}` | The same campaign as one reply, `{"ok", "summary", "results"}` (n <= 100); the page falls back to it if streaming fails |
+| `GET /api/v1/fuzz/stream?n=&seed=&bug=` | Server-Sent Events: one `program` event per program, then `done` (n <= 500) |
+| `POST /api/v1/fuzz` `{"n","seed","bug"?}` | The same campaign as one reply, `{"ok", "summary", "results"}` (n <= 100); the page falls back to it if streaming fails |
+| `POST /api/v1/reduce` `{"code", "bug"?}` | Shrink a failing program; `{"reduced": false, "message"}` if it does not fail |
+
+`bug` is optional and names a planted bug. A planted bug works by replacing a function
+inside the compiler, which changes it for the whole Python process, and the server
+handles requests in parallel threads. So requests with `bug` run in a separate worker
+process (`webapp/sandbox.py`, a pool of 2); the server's own compiler is never changed,
+and other visitors keep getting the correct compiler.
 
 Standard library only. Each response has an `X-Request-Id` header and each request
 is logged as one JSON line. Clients are rate-limited per IP address (token bucket;
@@ -186,6 +199,7 @@ comparisons. (Generated programs never hit either limit.)
 | `minicomp/evaluate.py` | Planted-bug evaluation: detection, programs needed, blame, reduction, false alarms |
 | `results/evaluation.md`, `results/evaluation.json` | Output of the full evaluation run |
 | `webapp/server.py`, `webapp/static/index.html` | Web backend and page |
+| `webapp/sandbox.py` | Worker processes that run planted-bug requests away from the server's own compiler |
 
 ## Optimizations
 

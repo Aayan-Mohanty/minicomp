@@ -10,13 +10,21 @@ API (version 1, all JSON unless noted):
     GET  /api/v1/health                      liveness + uptime
     GET  /api/v1/meta                        version, passes, limits, language rules
     GET  /api/v1/examples                    the programs in examples/
-    POST /api/v1/compile    {"code"}         every stage with timings, optimizer trace,
+    POST /api/v1/compile    {"code", "bug"?} every stage with timings, optimizer trace,
                                              CFGs, machine code and the 9-way verdict
     POST /api/v1/generate   {"seed"}         the random program for a seed
-    GET  /api/v1/fuzz/stream?n=N&seed=S      Server-Sent Events: one `program` event per
+    GET  /api/v1/fuzz/stream?n=N&seed=S[&bug=B]
+                                             Server-Sent Events: one `program` event per
                                              generated program, then `done` (N <= 500)
-    POST /api/v1/fuzz       {"n", "seed"}    same campaign as one JSON reply (N <= 100);
+    POST /api/v1/fuzz       {"n", "seed", "bug"?}
+                                             same campaign as one JSON reply (N <= 100);
                                              used when streaming is unavailable
+    POST /api/v1/reduce     {"code", "bug"?} shrink a failing program to a minimal one
+
+The optional "bug" names one of the planted bugs listed by /api/v1/meta.
+Those requests run in a separate worker process (see webapp/sandbox.py),
+so the server's own compiler is never changed and other visitors are not
+affected. Without "bug", every request uses the correct compiler.
 
 Every response carries an X-Request-Id header; each request is logged as one
 JSON line. Clients are rate-limited with a token bucket per IP address.
@@ -29,6 +37,7 @@ import argparse
 import json
 import mimetypes
 import os
+import signal
 import threading
 import time
 import uuid
@@ -40,6 +49,7 @@ from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from minicomp import interp, vm
+from minicomp.bugs import BUGS
 from minicomp.cfg import EXIT, build_cfg, connect, linearize, unit_cfgs
 from minicomp.errors import CompileError
 from minicomp.generator import generate, generate_source
@@ -51,9 +61,11 @@ from minicomp.parser import parse
 from minicomp.regalloc import K, allocate, run_machine
 from minicomp.tac import Unit, instruction_count, join_units, split_units
 from minicomp.printer import to_source
+from minicomp.reduce import reduce_program
 from minicomp.semantic import SemanticErrors, check
+from webapp import sandbox
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 EXAMPLES = ROOT.parent / "examples"
@@ -65,6 +77,8 @@ LIMITS = {
     "fuzz_stream_max": 500,
     "fuzz_batch_max": 100,
     "trace_steps_max": 80,
+    "reduce_tests_max": 4000,
+    "reduce_seconds_max": 40,
 }
 
 
@@ -299,6 +313,51 @@ def summarize(results, seconds: float) -> dict:
             "pass_activity": activity, "seconds": round(seconds, 2)}
 
 
+# ======================================================================
+# Reduction
+# ======================================================================
+def reduce_source(source: str) -> dict:
+    """Shrink a failing program. Returns {"reduced": False, "message"} if there is nothing to shrink."""
+    if len(source) > LIMITS["source_chars"]:
+        return {"reduced": False, "message": f"program is longer than {LIMITS['source_chars']} characters"}
+    try:
+        program = parse(source)
+        check(program)
+    except (CompileError, SemanticErrors, RecursionError):
+        return {"reduced": False, "message": "the program has errors; compile it to see them"}
+    verdict = check_program(program)
+    if verdict.status == "ok":
+        return {"reduced": False, "message": "nothing to reduce: all 9 runs agree"}
+    if verdict.status == "timeout":
+        return {"reduced": False, "message": "nothing to reduce: the reference interpreter hit its step limit"}
+    res = reduce_program(program, verdict, max_tests=LIMITS["reduce_tests_max"],
+                         time_limit=LIMITS["reduce_seconds_max"])
+    return {"reduced": True, "source": res.source, "before": res.before, "after": res.after,
+            "tests": res.tests, "seconds": res.seconds, "complete": res.complete,
+            "status": res.verdict.status, "failing": res.verdict.failing, "suspects": res.verdict.suspects}
+
+
+# ======================================================================
+# Planted bugs
+# ======================================================================
+def _bug_param(value) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or value not in BUGS:
+        raise ApiError(400, "'bug' must be one of the planted bugs listed by /api/v1/meta")
+    return value
+
+
+def run_with(bug: Optional[str], name: str, *args):
+    """globals()[name](*args): directly with the correct compiler, or in a worker with `bug` planted."""
+    if bug is None:
+        return globals()[name](*args)
+    try:
+        return sandbox.call(bug, name, *args)
+    except sandbox.SandboxError as e:
+        raise ApiError(e.status, e.message) from None
+
+
 def _int_param(value, name: str, lo: int, hi: int) -> int:
     try:
         n = int(value)
@@ -340,6 +399,7 @@ def _health(h, q):
 @route("GET", "/api/v1/meta", cost=0)
 def _meta(h, q):
     return {"version": VERSION, "passes": ALL_PASSES, "registers": K, "limits": LIMITS,
+            "bugs": [{"name": b.name, "home": b.home, "summary": b.summary} for b in BUGS.values()],
             "rules": ["32-bit integers wrap around", "x / 0 == 0", "x % 0 == x",
                       "shift amounts use the low 5 bits", "comparisons give 1 or 0",
                       "a[i] is element i mod n (in 0..n-1); new arrays hold 0",
@@ -357,7 +417,17 @@ def _compile(h, body):
     code = body.get("code")
     if not isinstance(code, str):
         raise ApiError(400, "body must be {\"code\": \"...\"}")
-    return compile_all(code)
+    bug = _bug_param(body.get("bug"))
+    return run_with(bug, "compile_all", code) | {"bug": bug}
+
+
+@route("POST", "/api/v1/reduce", cost=10)
+def _reduce(h, body):
+    code = body.get("code")
+    if not isinstance(code, str):
+        raise ApiError(400, "body must be {\"code\": \"...\"}")
+    bug = _bug_param(body.get("bug"))
+    return run_with(bug, "reduce_source", code) | {"bug": bug}
 
 
 @route("POST", "/api/v1/generate")
@@ -370,25 +440,32 @@ def _generate(h, body):
 def _fuzz_batch(h, body):
     n = _int_param(body.get("n", 50), "n", 1, LIMITS["fuzz_batch_max"])
     seed = _int_param(body.get("seed", 0), "seed", 0, 10**9)
+    bug = _bug_param(body.get("bug"))
     t0 = time.perf_counter()
-    results = [fuzz_one(seed + i) for i in range(n)]
+    results = [run_with(bug, "fuzz_one", seed + i) for i in range(n)]
     # the summary has its own "ok" count, so it is nested to keep "ok" the success flag
-    return {"ok": True, "summary": summarize(results, time.perf_counter() - t0), "results": results}
+    return {"ok": True, "bug": bug, "summary": summarize(results, time.perf_counter() - t0),
+            "results": results}
 
 
 @route("GET", "/api/v1/fuzz/stream", cost=10)
 def _fuzz_stream(h, q):
     n = _int_param(q.get("n", "100"), "n", 1, LIMITS["fuzz_stream_max"])
     seed = _int_param(q.get("seed", "0"), "seed", 0, 10**9)
+    bug = _bug_param(q.get("bug"))
     h.start_stream()
     t0 = time.perf_counter()
     results = []
     try:
         for i in range(n):
-            r = fuzz_one(seed + i)
+            try:
+                r = run_with(bug, "fuzz_one", seed + i)
+            except ApiError as e:                       # headers are already sent
+                h.send_event("failed", {"error": e.message})
+                return None
             results.append(r)
             h.send_event("program", r | {"index": i})
-        h.send_event("done", summarize(results, time.perf_counter() - t0))
+        h.send_event("done", summarize(results, time.perf_counter() - t0) | {"bug": bug})
     except (BrokenPipeError, ConnectionResetError):
         h.log_extra["aborted"] = len(results)          # client closed the stream
     return None                                         # response already written
@@ -528,6 +605,11 @@ def main() -> None:
     args = ap.parse_args()
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.daemon_threads = True
+    sandbox.warm_up()
+
+    def stop(signum, frame):              # hosting platforms stop the server with SIGTERM
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
     print(json.dumps({"event": "start", "url": f"http://{args.host}:{args.port}", "version": VERSION}), flush=True)
     try:
         httpd.serve_forever()
@@ -535,6 +617,7 @@ def main() -> None:
         pass
     finally:
         httpd.server_close()
+        sandbox.shutdown()
 
 
 if __name__ == "__main__":

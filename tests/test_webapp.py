@@ -147,3 +147,65 @@ def test_batch_fuzz_keeps_ok_as_the_success_flag():
         assert len(r["results"]) == 2
     finally:
         httpd.shutdown()
+
+
+# ---------------------------------------------------------------- planted bugs on the website
+DIV = "fun f(x) {\n    return x / x;\n}\nprint f(5);\nprint f(0);\n"
+
+
+def test_planted_bug_runs_in_a_worker_and_never_changes_the_server():
+    from minicomp import opt
+    identity = opt._identity
+    r = srv.run_with("div-self-one", "compile_all", DIV)
+    v = r["verdict"]
+    assert v["status"] == "mismatch" and v["outputs"]["reference"] == [1, 0]
+    assert v["failing"] == ["O1", "only:constprop", "machine"] and v["suspects"] == ["constprop"]
+    assert opt._identity is identity                                # the server process is untouched
+    assert srv.compile_all(DIV)["verdict"]["status"] == "ok"
+
+
+def test_reduce_shrinks_a_fuzzer_failure_and_refuses_passing_programs():
+    r = srv.run_with("regalloc-entry-params", "reduce_source", generate_source(1))
+    assert r["reduced"] and r["before"]["lines"] == 92 and r["after"]["lines"] == 5 and r["complete"]
+    assert r["source"] == "fun f1(p, q) {\n    print p;\n}\nvar g0 = 0;\ng0 = f1(1, 0);\n"
+    assert r["status"] == "mismatch" and r["suspects"] == ["regalloc"]
+    assert srv.reduce_source(DIV) == {"reduced": False, "message": "nothing to reduce: all 9 runs agree"}
+    assert srv.reduce_source("print 1")["message"] == "the program has errors; compile it to see them"
+
+
+def test_http_planted_bug_requests_do_not_affect_other_visitors():
+    httpd, base = start_server()
+    try:
+        status, _, body = call(base + "/api/v1/meta")
+        assert len(json.loads(body)["bugs"]) == 22
+        assert call(base + "/api/v1/compile", {"code": DIV, "bug": "nope"})[0] == 400
+        r = json.loads(call(base + "/api/v1/compile", {"code": DIV, "bug": "div-self-one"})[2])
+        assert r["bug"] == "div-self-one" and r["verdict"]["status"] == "mismatch"
+
+        wrong, streamed = [], {}
+
+        def campaign():                       # a visitor fuzzing with a planted bug ...
+            _, _, text = call(base + "/api/v1/fuzz/stream?n=30&seed=0&bug=liveness-ignores-branch")
+            events = [e for e in text.split("\n\n") if e.startswith("event: program")]
+            streamed["statuses"] = [json.loads(e.split("data: ", 1)[1])["status"] for e in events]
+
+        def visitor():                        # ... while others compile with the correct compiler
+            for _ in range(15):
+                v = json.loads(call(base + "/api/v1/compile", {"code": DIV})[2])["verdict"]
+                if v["status"] != "ok":
+                    wrong.append(v["status"])
+
+        threads = [threading.Thread(target=f) for f in (campaign, visitor, visitor)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert wrong == []
+        assert len(streamed["statuses"]) == 30 and "crash" in streamed["statuses"]
+
+        r = json.loads(call(base + "/api/v1/reduce", {"code": DIV, "bug": "div-self-one"})[2])
+        assert r["reduced"] and r["status"] == "mismatch"
+        r = json.loads(call(base + "/api/v1/fuzz", {"n": 3, "seed": 0, "bug": "liveness-ignores-branch"})[2])
+        assert r["ok"] is True and r["bug"] == "liveness-ignores-branch"
+    finally:
+        httpd.shutdown()

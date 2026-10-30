@@ -17,8 +17,10 @@ correct answer.
     with planted("fold-div-floor"):
         ...  # the optimizer now folds division with floor rounding
 
-Not thread-safe: use planted bugs from one thread at a time (the CLI and
-the evaluation do; the web server never plants bugs).
+Not thread-safe: a bug changes the compiler for the whole process, so use
+planted bugs from one thread at a time. The CLI and the evaluation do; the
+web server never plants a bug in its own process, but hands each such
+request to a separate worker process (webapp/sandbox.py).
 """
 
 from __future__ import annotations
